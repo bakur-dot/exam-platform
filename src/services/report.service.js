@@ -204,4 +204,150 @@ async function getAttemptDetails(attemptId, requesterId) {
   };
 }
 
-module.exports = { ReportError, getCandidateHistory, getAttemptDetails };
+/**
+ * Aggregate results for all candidates in one ExamSession.
+ *
+ * Counts only SUBMITTED/TIMED_OUT attempts (IN_PROGRESS excluded).
+ * Per-chapter success rate = (correct answers across all attempts) / (total answers across all attempts).
+ * Unanswered questions count as wrong — consistent with finishExam denominator.
+ */
+async function getSessionReport(sessionId) {
+  const session = await prisma.examSession.findUniqueOrThrow({
+    where: { id: sessionId },
+    include: {
+      examProfile: {
+        include: { specialization: { select: { name: true } } },
+      },
+      candidates: { select: { candidateId: true, candidateNumber: true } },
+      attempts: {
+        include: {
+          answers: {
+            include: {
+              question: { select: { chapter: { select: { id: true, name: true } } } },
+              selectedAnswer: { select: { isCorrect: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const { passingScore } = session.examProfile;
+  const completed = session.attempts.filter(a => a.status !== 'IN_PROGRESS');
+  const scores    = completed.filter(a => a.finalScore !== null).map(a => a.finalScore);
+  const passed    = completed.filter(a => a.finalScore !== null && a.finalScore >= passingScore).length;
+  const avgScore  = scores.length > 0
+    ? parseFloat((scores.reduce((s, x) => s + x, 0) / scores.length).toFixed(2))
+    : null;
+
+  const chapterMap = new Map();
+  for (const attempt of completed) {
+    for (const aa of attempt.answers) {
+      const ch = aa.question.chapter;
+      if (!chapterMap.has(ch.id)) {
+        chapterMap.set(ch.id, { chapterId: ch.id, chapterName: ch.name, total: 0, correct: 0 });
+      }
+      const entry = chapterMap.get(ch.id);
+      entry.total++;
+      if (aa.selectedAnswer?.isCorrect === true) entry.correct++;
+    }
+  }
+
+  const chapterBreakdown = Array.from(chapterMap.values())
+    .sort((a, b) => a.chapterName.localeCompare(b.chapterName))
+    .map(ch => ({
+      chapterId:     ch.chapterId,
+      chapterName:   ch.chapterName,
+      totalAnswers:  ch.total,
+      correctAnswers: ch.correct,
+      successRate:   ch.total > 0 ? parseFloat(((ch.correct / ch.total) * 100).toFixed(2)) : 0,
+    }));
+
+  return {
+    sessionId,
+    scheduledTime:       session.scheduledTime,
+    location:            session.location,
+    specializationName:  session.examProfile.specialization.name,
+    passingScore,
+    totalCandidates:     session.candidates.length,
+    completedAttempts:   completed.length,
+    passed,
+    failed:              completed.length - passed,
+    averageScore:        avgScore,
+    chapterBreakdown,
+  };
+}
+
+/**
+ * Cross-attempt difficulty analysis for all completed attempts under one ExamProfile.
+ *
+ * Chapters are sorted ascending by successRate so the hardest chapters appear first.
+ * isCorrect is used only for aggregation — it is never returned in the output.
+ */
+async function getThematicStats(profileId) {
+  const profile = await prisma.examProfile.findUniqueOrThrow({
+    where:   { id: profileId },
+    include: { specialization: { select: { name: true } } },
+  });
+
+  // Two-step: find completed attempt IDs first, then aggregate answers.
+  const completedAttempts = await prisma.candidateAttempt.findMany({
+    where:  { examProfileId: profileId, status: { in: ['SUBMITTED', 'TIMED_OUT'] } },
+    select: { id: true },
+  });
+
+  if (completedAttempts.length === 0) {
+    return {
+      profileId,
+      specializationName:     profile.specialization.name,
+      totalCompletedAttempts: 0,
+      chapters:               [],
+    };
+  }
+
+  const attemptIds = completedAttempts.map(a => a.id);
+
+  const answers = await prisma.attemptAnswer.findMany({
+    where:   { attemptId: { in: attemptIds } },
+    include: {
+      question:       { select: { chapter: { select: { id: true, name: true } } } },
+      selectedAnswer: { select: { isCorrect: true } },
+    },
+  });
+
+  const chapterMap = new Map();
+  for (const aa of answers) {
+    const ch = aa.question.chapter;
+    if (!chapterMap.has(ch.id)) {
+      chapterMap.set(ch.id, { chapterId: ch.id, chapterName: ch.name, total: 0, correct: 0 });
+    }
+    const entry = chapterMap.get(ch.id);
+    entry.total++;
+    if (aa.selectedAnswer?.isCorrect === true) entry.correct++;
+  }
+
+  const chapters = Array.from(chapterMap.values())
+    .map(ch => ({
+      chapterId:     ch.chapterId,
+      chapterName:   ch.chapterName,
+      totalAnswers:  ch.total,
+      correctAnswers: ch.correct,
+      successRate:   ch.total > 0 ? parseFloat(((ch.correct / ch.total) * 100).toFixed(2)) : 0,
+    }))
+    .sort((a, b) => a.successRate - b.successRate); // hardest first
+
+  return {
+    profileId,
+    specializationName:     profile.specialization.name,
+    totalCompletedAttempts: completedAttempts.length,
+    chapters,
+  };
+}
+
+module.exports = {
+  ReportError,
+  getCandidateHistory,
+  getAttemptDetails,
+  getSessionReport,
+  getThematicStats,
+};
