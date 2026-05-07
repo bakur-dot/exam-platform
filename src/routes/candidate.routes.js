@@ -1,0 +1,33 @@
+'use strict';
+
+const { Router } = require('express');
+const { requireAuth, requireRole } = require('../middleware/auth.middleware');
+const { uploadCandidateDoc, uploadCsv } = require('../middleware/upload.middleware');
+const ctrl = require('../controllers/candidate.controller');
+
+const router = Router();
+
+// Candidate uploads one of their 4 required registration documents
+router.post(
+  '/documents',
+  requireAuth, requireRole('Candidate'),
+  uploadCandidateDoc,
+  ctrl.uploadDoc
+);
+
+// Admin / SuperAdmin approves, rejects, or returns a document for revision
+router.post(
+  '/documents/:id/review',
+  requireAuth, requireRole('Admin', 'SuperAdmin'),
+  ctrl.reviewDoc
+);
+
+// Admin / SuperAdmin bulk-imports candidates from a CSV file
+router.post(
+  '/import',
+  requireAuth, requireRole('Admin', 'SuperAdmin'),
+  uploadCsv,
+  ctrl.importCandidates
+);
+
+module.exports = router;

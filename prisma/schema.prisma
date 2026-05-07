@@ -1,0 +1,288 @@
+// Exam Platform — ISO 17024 Compliant Schema
+// ORM: Prisma 5 | DB: SQLite (WAL mode enabled at client init)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Roles & Users ────────────────────────────────────────────────────────────
+
+model Role {
+  id    Int    @id @default(autoincrement())
+  name  String @unique // SuperAdmin | Admin | Examiner | Candidate
+  users User[]
+}
+
+model User {
+  id               Int                  @id @default(autoincrement())
+  name             String
+  email            String               @unique
+  passwordHash     String
+  role             Role                 @relation(fields: [roleId], references: [id])
+  roleId           Int
+  totpSecret       String?              // AES-256-GCM encrypted; null until setupTotp is called
+  is2faEnabled     Boolean              @default(false)
+  attempts         CandidateAttempt[]
+  auditLogs        AuditLog[]
+  documents        CandidateDocument[]
+  examinerSessions ExamSession[]        @relation("ExaminerSessions")
+  sessionSeats     SessionCandidate[]   @relation("CandidateSessions")
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+}
+
+// ─── Candidate Documents ──────────────────────────────────────────────────────
+
+// ISO 17024 pre-exam requirement: all 4 doc types must be APPROVED before
+// a candidate may generate an exam attempt.
+// @@unique([userId, docType]) enforces one active submission per type:
+// re-uploading the same type upserts to PENDING, triggering a fresh review.
+model CandidateDocument {
+  id              Int      @id @default(autoincrement())
+  user            User     @relation(fields: [userId], references: [id])
+  userId          Int
+  docType         String   // DIPLOMA | EXPERIENCE | ID_CARD | PHOTO
+  documentUrl     String
+  status          String   @default("PENDING") // PENDING | APPROVED | REJECTED | RETURNED
+  rejectionReason String?
+  uploadedAt      DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, docType])
+  @@index([userId, status])
+}
+
+// ─── Content Hierarchy ────────────────────────────────────────────────────────
+
+model Specialization {
+  id           Int           @id @default(autoincrement())
+  name         String        @unique
+  chapters     Chapter[]
+  examProfiles ExamProfile[]
+  projects     Project[]
+}
+
+model Chapter {
+  id               Int            @id @default(autoincrement())
+  name             String
+  specialization   Specialization @relation(fields: [specializationId], references: [id])
+  specializationId Int
+  questions        Question[]
+
+  @@unique([specializationId, name])
+}
+
+// Question versioning:
+//   - Every edit creates a NEW row with the same questionGroupId and version + 1.
+//   - The previous row is set to isActive = false.
+//   - AttemptAnswer references a specific row id, preserving the exact version
+//     a candidate saw — required for ISO 17024 auditability.
+model Question {
+  id              Int             @id @default(autoincrement())
+  questionGroupId Int             // logical question identity across versions
+  chapter         Chapter         @relation(fields: [chapterId], references: [id])
+  chapterId       Int
+  content         String
+  imageUrl        String?
+  version         Int             @default(1)
+  isActive        Boolean         @default(true)
+  status          String          @default("DRAFT") // DRAFT | PENDING | APPROVED | REJECTED | ARCHIVED
+  answers         Answer[]
+  attemptAnswers  AttemptAnswer[]
+  createdAt       DateTime        @default(now())
+
+  @@unique([questionGroupId, version])
+  @@index([questionGroupId, isActive])
+}
+
+model Answer {
+  id             Int             @id @default(autoincrement())
+  question       Question        @relation(fields: [questionId], references: [id])
+  questionId     Int
+  content        String
+  isCorrect      Boolean         @default(false)
+  attemptAnswers AttemptAnswer[]
+}
+
+// ─── Exam Configuration ───────────────────────────────────────────────────────
+
+model ExamProfile {
+  id               Int                @id @default(autoincrement())
+  specialization   Specialization     @relation(fields: [specializationId], references: [id])
+  specializationId Int
+  questionCount    Int
+  passingScore     Int                // percentage, 0–100
+  durationMinutes  Int
+  isExpert         Boolean            @default(false)
+  requiresProjects Boolean            @default(false)
+  attempts         CandidateAttempt[]
+  sessions         ExamSession[]
+}
+
+// ─── Exam Sessions ────────────────────────────────────────────────────────────
+
+// ISO 17024: An Examiner schedules a session for a specific ExamProfile.
+// Candidates are added to the session and must sign the pre-exam protocol
+// before the Examiner grants them authorization to start.
+model ExamSession {
+  id            Int                @id @default(autoincrement())
+  examiner      User               @relation("ExaminerSessions", fields: [examinerId], references: [id])
+  examinerId    Int
+  examProfile   ExamProfile        @relation(fields: [examProfileId], references: [id])
+  examProfileId Int
+  scheduledTime DateTime
+  location      String
+  candidates    SessionCandidate[]
+  attempts      CandidateAttempt[]
+  createdAt     DateTime           @default(now())
+}
+
+// One seat per candidate per session. candidateNumber is unique within the session
+// to allow anonymous identification during marking.
+model SessionCandidate {
+  id               Int         @id @default(autoincrement())
+  session          ExamSession @relation(fields: [sessionId], references: [id])
+  sessionId        Int
+  candidate        User        @relation("CandidateSessions", fields: [candidateId], references: [id])
+  candidateId      Int
+  candidateNumber  String
+  isProtocolSigned Boolean     @default(false)
+  startStatus      String      @default("WAITING") // WAITING | AUTHORIZED
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@unique([sessionId, candidateId])     // one seat per candidate per session
+  @@unique([sessionId, candidateNumber]) // candidate numbers unique within a session
+}
+
+// ─── Candidate Attempts ───────────────────────────────────────────────────────
+
+model CandidateAttempt {
+  id               Int              @id @default(autoincrement())
+  user             User             @relation(fields: [userId], references: [id])
+  userId           Int
+  examProfile      ExamProfile      @relation(fields: [examProfileId], references: [id])
+  examProfileId    Int
+  session          ExamSession?     @relation(fields: [sessionId], references: [id])
+  sessionId        Int?
+  startTime        DateTime         @default(now())
+  endTime          DateTime?
+  status           String           @default("IN_PROGRESS") // IN_PROGRESS | SUBMITTED | TIMED_OUT
+  finalScore       Float?
+  answers          AttemptAnswer[]
+  assignedProjects AttemptProject[]
+  appeal           Appeal?
+}
+
+// Auto-save table — upsert key is (attemptId, questionId).
+// selectedAnswerId is nullable: null = question seen but not yet answered.
+// savedAt auto-updates on every write, giving a precise save timestamp.
+model AttemptAnswer {
+  id               Int              @id @default(autoincrement())
+  attempt          CandidateAttempt @relation(fields: [attemptId], references: [id])
+  attemptId        Int
+  question         Question         @relation(fields: [questionId], references: [id])
+  questionId       Int
+  selectedAnswer   Answer?          @relation(fields: [selectedAnswerId], references: [id])
+  selectedAnswerId Int?
+  savedAt          DateTime         @default(now()) @updatedAt
+
+  @@unique([attemptId, questionId])
+}
+
+// ─── Project Checking ─────────────────────────────────────────────────────────
+
+// A practical project/task assigned to candidates during exams that require it.
+// PDF file stored at fileUrl; examiners mark mistakes from the predefined checklist.
+model Project {
+  id               Int              @id @default(autoincrement())
+  specialization   Specialization   @relation(fields: [specializationId], references: [id])
+  specializationId Int
+  title            String
+  description      String?
+  fileUrl          String?          // path under public/uploads/projects/
+  isActive         Boolean          @default(true)
+  mistakes         ProjectMistake[]
+  attemptProjects  AttemptProject[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+}
+
+// Predefined mistake checklist for a project. Each item carries a penalty weight.
+model ProjectMistake {
+  id                     Int                    @id @default(autoincrement())
+  project                Project                @relation(fields: [projectId], references: [id])
+  projectId              Int
+  description            String
+  penaltyPoints          Float                  @default(1.0)
+  attemptProjectMistakes AttemptProjectMistake[]
+  createdAt              DateTime               @default(now())
+}
+
+// Links a CandidateAttempt to one of its assigned projects.
+// score is set at finishExam: max(0, 100 - sum(penaltyPoints of marked mistakes)).
+model AttemptProject {
+  id        Int                    @id @default(autoincrement())
+  attempt   CandidateAttempt       @relation(fields: [attemptId], references: [id])
+  attemptId Int
+  project   Project                @relation(fields: [projectId], references: [id])
+  projectId Int
+  score     Float?
+  mistakes  AttemptProjectMistake[]
+  savedAt   DateTime               @default(now()) @updatedAt
+
+  @@unique([attemptId, projectId])
+}
+
+// Records which mistakes were marked for a candidate's project evaluation.
+// Upsert key is (attemptProjectId, mistakeId).
+model AttemptProjectMistake {
+  id               Int            @id @default(autoincrement())
+  attemptProject   AttemptProject @relation(fields: [attemptProjectId], references: [id])
+  attemptProjectId Int
+  mistake          ProjectMistake @relation(fields: [mistakeId], references: [id])
+  mistakeId        Int
+  markedAt         DateTime       @default(now())
+
+  @@unique([attemptProjectId, mistakeId])
+}
+
+// ─── Appeals ──────────────────────────────────────────────────────────────────
+
+// ISO 17024: A candidate may appeal a SUBMITTED attempt exactly once.
+// A commission reviews the document and may override the final score.
+// DB-level uniqueness on attemptId enforces the one-appeal-per-attempt rule.
+model Appeal {
+  id            Int              @id @default(autoincrement())
+  attempt       CandidateAttempt @relation(fields: [attemptId], references: [id])
+  attemptId     Int              @unique  // one appeal per attempt
+  documentUrl   String
+  status        String           @default("PENDING") // PENDING | REVIEWED
+  decisionNotes String?
+  isScoreChanged Boolean         @default(false)
+  createdAt     DateTime         @default(now())
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+// APPEND-ONLY. Application code must never UPDATE or DELETE rows here.
+// userId is nullable to accommodate system-initiated actions.
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  user      User?    @relation(fields: [userId], references: [id])
+  userId    Int?
+  action    String   // CREATE | UPDATE | DELETE | LOGIN | LOGOUT | EXAM_SUBMIT …
+  tableName String
+  recordId  String   // stringified PK of the affected record
+  oldData   String?  // JSON snapshot before change
+  newData   String?  // JSON snapshot after change
+  createdAt DateTime @default(now())
+
+  @@index([tableName, recordId])
+  @@index([userId, createdAt])
+}

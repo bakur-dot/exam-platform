@@ -1,0 +1,24 @@
+node_modules/
+
+# Environment — never commit secrets
+.env
+.env.*
+!.env.example
+
+# Database — runtime artifact
+*.db
+*.db-shm
+*.db-wal
+
+# Prisma generated directory
+/generated/
+
+# Uploaded files — runtime artifacts, not source
+public/uploads/
+
+# Test boot logs
+test/
+
+# OS
+.DS_Store
+Thumbs.db
