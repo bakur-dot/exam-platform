@@ -209,10 +209,15 @@ async function bulkImportCandidates(csvBuffer) {
   return result;
 }
 
+async function getMyDocuments(userId) {
+  return prisma.candidateDocument.findMany({ where: { userId } });
+}
+
 module.exports = {
   CandidateError,
   uploadDocument,
   reviewDocument,
   checkExamEligibility,
   bulkImportCandidates,
+  getMyDocuments,
 };

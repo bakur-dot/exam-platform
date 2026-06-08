@@ -7,6 +7,13 @@ const ctrl = require('../controllers/candidate.controller');
 
 const router = Router();
 
+// Candidate retrieves their own submitted documents — placed before /:id routes
+router.get(
+  '/documents',
+  requireAuth, requireRole('Candidate'),
+  ctrl.getMyDocuments
+);
+
 // Candidate uploads one of their 4 required registration documents
 router.post(
   '/documents',

@@ -47,4 +47,10 @@ const importCandidates = asyncHandler(async (req, res) => {
   res.status(201).json(result);
 });
 
-module.exports = { uploadDoc, reviewDoc, importCandidates };
+// GET /api/candidates/documents  — Candidate
+const getMyDocuments = asyncHandler(async (req, res) => {
+  const docs = await candidateService.getMyDocuments(req.user.sub);
+  res.json(docs);
+});
+
+module.exports = { uploadDoc, reviewDoc, importCandidates, getMyDocuments };
