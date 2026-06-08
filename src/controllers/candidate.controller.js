@@ -53,4 +53,10 @@ const getMyDocuments = asyncHandler(async (req, res) => {
   res.json(docs);
 });
 
-module.exports = { uploadDoc, reviewDoc, importCandidates, getMyDocuments };
+// GET /api/candidates/eligibility  — Candidate
+const getMyEligibility = asyncHandler(async (req, res) => {
+  const eligible = await candidateService.checkExamEligibility(req.user.sub);
+  res.json({ eligible });
+});
+
+module.exports = { uploadDoc, reviewDoc, importCandidates, getMyDocuments, getMyEligibility };

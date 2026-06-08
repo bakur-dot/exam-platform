@@ -14,6 +14,13 @@ router.get(
   ctrl.getMyDocuments
 );
 
+// Candidate checks their own exam eligibility (all 4 docs APPROVED)
+router.get(
+  '/eligibility',
+  requireAuth, requireRole('Candidate'),
+  ctrl.getMyEligibility
+);
+
 // Candidate uploads one of their 4 required registration documents
 router.post(
   '/documents',
