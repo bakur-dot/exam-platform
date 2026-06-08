@@ -1,6 +1,8 @@
 import axios from 'axios';
 import { useEffect, useState } from 'react';
 import api from '../../services/api';
+import SessionReport from '../../components/reports/SessionReport';
+import type { SessionReportData } from '../../components/reports/SessionReport';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -271,6 +273,11 @@ function SessionsTab() {
   const [authorizingId, setAuthorizingId] = useState<number | null>(null);
   const [authError,     setAuthError]     = useState<string | null>(null);
 
+  // — Session report —
+  const [sessionReport,     setSessionReport]     = useState<SessionReportData | null>(null);
+  const [loadingReport,     setLoadingReport]     = useState(false);
+  const [reportError,       setReportError]       = useState<string | null>(null);
+
   // — Fetch on mount —
   useEffect(() => { void fetchInitialData(); }, []);
 
@@ -362,6 +369,19 @@ function SessionsTab() {
     }
   }
 
+  async function handleViewReport(sessionId: number) {
+    setReportError(null);
+    setLoadingReport(true);
+    try {
+      const { data } = await api.get<SessionReportData>(`/reports/sessions/${sessionId}`);
+      setSessionReport(data);
+    } catch (err) {
+      setReportError(axiosMsg(err, 'Failed to load session report.'));
+    } finally {
+      setLoadingReport(false);
+    }
+  }
+
   // — Loading skeleton —
   if (loadingData) return (
     <div className="flex items-center justify-center h-64">
@@ -369,16 +389,44 @@ function SessionsTab() {
     </div>
   );
 
+  // ── Session report view ──────────────────────────────────────────────────────
+  if (selectedSession && sessionReport) {
+    return (
+      <SessionReport
+        data={sessionReport}
+        onClose={() => setSessionReport(null)}
+      />
+    );
+  }
+
   // ── Detail view ──────────────────────────────────────────────────────────────
   if (selectedSession) {
     const { examProfile: ep } = selectedSession;
+    const isPastSession = new Date(selectedSession.scheduledTime) < new Date();
     return (
       <div className="space-y-6">
-        {/* Back */}
-        <button type="button" onClick={() => setSelectedSession(null)}
-          className="text-sm font-medium text-blue-600 hover:text-blue-800">
-          ← Back to Sessions
-        </button>
+        {/* Back + report button */}
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <button type="button" onClick={() => { setSelectedSession(null); setSessionReport(null); setReportError(null); }}
+            className="text-sm font-medium text-blue-600 hover:text-blue-800">
+            ← Back to Sessions
+          </button>
+          {isPastSession && (
+            <button
+              type="button"
+              onClick={() => void handleViewReport(selectedSession.id)}
+              disabled={loadingReport}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            >
+              {loadingReport ? 'Loading…' : 'View Session Report'}
+            </button>
+          )}
+        </div>
+        {reportError && (
+          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+            <p className="text-sm text-red-600">{reportError}</p>
+          </div>
+        )}
 
         {/* Session meta */}
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-6">

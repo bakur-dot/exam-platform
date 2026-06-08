@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import api from '../../services/api';
 import { axiosMsg } from '../../utils/axiosMsg';
+import { downloadBlob } from '../../utils/downloadBlob';
+import AttemptDetails from '../../components/reports/AttemptDetails';
+import type { AttemptDetailsData } from '../../components/reports/AttemptDetails';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -111,6 +114,21 @@ type SavedAnswers = Record<number, number | null>;
 type MarkedMistakes = Record<number, number[]>;
 type ViewKind = 'loading' | 'dashboard' | 'exam' | 'result';
 
+interface HistoryItem {
+  id: number;
+  startTime: string;
+  endTime: string | null;
+  status: 'IN_PROGRESS' | 'SUBMITTED' | 'TIMED_OUT';
+  finalScore: number | null;
+  passed: boolean | null;
+  examProfile: {
+    id: number;
+    specializationName: string;
+    passingScore: number;
+    isExpert: boolean;
+  };
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DOC_TYPES: DocType[] = ['DIPLOMA', 'EXPERIENCE', 'ID_CARD', 'PHOTO'];
@@ -215,7 +233,7 @@ function DocCard({ docType, doc, onUpload, uploading }: DocCardProps) {
 export default function CandidateDashboard() {
   // View
   const [viewKind, setViewKind]   = useState<ViewKind>('loading');
-  const [dashTab, setDashTab]     = useState<'documents' | 'exams'>('documents');
+  const [dashTab, setDashTab]     = useState<'documents' | 'exams' | 'history'>('documents');
 
   // Dashboard data
   const [documents, setDocuments]   = useState<CandidateDocument[]>([]);
@@ -236,6 +254,15 @@ export default function CandidateDashboard() {
 
   // Result
   const [result, setResult] = useState<ExamResult | null>(null);
+
+  // History tab state
+  const [historyItems, setHistoryItems]       = useState<HistoryItem[]>([]);
+  const [historyLoaded, setHistoryLoaded]     = useState(false);
+  const [historyLoading, setHistoryLoading]   = useState(false);
+  const [selectedDetails, setSelectedDetails] = useState<AttemptDetailsData | null>(null);
+  const [loadingDetails, setLoadingDetails]   = useState(false);
+  const [downloadingKey, setDownloadingKey]   = useState<string | null>(null);
+  const [historyError, setHistoryError]       = useState('');
 
   // UI feedback
   const [error, setError]               = useState('');
@@ -356,6 +383,56 @@ export default function CandidateDashboard() {
       setError(axiosMsg(err, 'Upload failed. Please try again.'));
     } finally {
       setUploadingType(null);
+    }
+  }
+
+  // ── History tab ───────────────────────────────────────────────────────────
+
+  async function loadHistory() {
+    if (historyLoaded) return;
+    setHistoryLoading(true);
+    setHistoryError('');
+    try {
+      const { data } = await api.get<HistoryItem[]>('/reports/history');
+      setHistoryItems(data);
+      setHistoryLoaded(true);
+    } catch (err) {
+      setHistoryError(axiosMsg(err, 'Failed to load exam history.'));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function handleViewDetails(attemptId: number) {
+    setLoadingDetails(true);
+    setHistoryError('');
+    try {
+      const { data } = await api.get<AttemptDetailsData>(`/reports/attempts/${attemptId}`);
+      setSelectedDetails(data);
+    } catch (err) {
+      setHistoryError(axiosMsg(err, 'Failed to load attempt details.'));
+    } finally {
+      setLoadingDetails(false);
+    }
+  }
+
+  async function handleDownloadReport(attemptId: number, fmt: 'pdf' | 'excel') {
+    const key = `${attemptId}-${fmt}`;
+    setDownloadingKey(key);
+    setHistoryError('');
+    try {
+      const ext  = fmt === 'pdf' ? 'pdf' : 'xlsx';
+      const mime = fmt === 'pdf'
+        ? 'application/pdf'
+        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      const res = await api.get(`/reports/attempts/${attemptId}/export/${fmt}`, {
+        responseType: 'blob',
+      });
+      downloadBlob(new Blob([res.data as BlobPart], { type: mime }), `attempt-${attemptId}.${ext}`);
+    } catch (err) {
+      setHistoryError(axiosMsg(err, `Failed to download ${fmt.toUpperCase()}.`));
+    } finally {
+      setDownloadingKey(null);
     }
   }
 
@@ -769,17 +846,21 @@ export default function CandidateDashboard() {
 
       {/* Tabs */}
       <div className="border-b border-gray-200 flex gap-1">
-        {(['documents', 'exams'] as const).map((tab) => (
+        {(['documents', 'exams', 'history'] as const).map((tab) => (
           <button
             key={tab}
-            onClick={() => { setDashTab(tab); setError(''); }}
+            onClick={() => {
+              setDashTab(tab);
+              setError('');
+              if (tab === 'history') void loadHistory();
+            }}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               dashTab === tab
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            {tab === 'documents' ? 'My Documents' : 'My Exams'}
+            {tab === 'documents' ? 'My Documents' : tab === 'exams' ? 'My Exams' : 'My History'}
           </button>
         ))}
       </div>
@@ -912,6 +993,117 @@ export default function CandidateDashboard() {
                 </div>
               );
             })
+          )}
+        </div>
+      )}
+
+      {/* History tab */}
+      {dashTab === 'history' && (
+        <div className="space-y-4">
+          {historyLoading && (
+            <div className="flex items-center justify-center h-32">
+              <p className="text-gray-400 text-sm animate-pulse">Loading history…</p>
+            </div>
+          )}
+
+          {historyError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+              <p className="text-sm text-red-600">{historyError}</p>
+            </div>
+          )}
+
+          {/* Attempt details panel */}
+          {selectedDetails && (
+            <AttemptDetails
+              data={selectedDetails}
+              onClose={() => setSelectedDetails(null)}
+              showDownloads
+            />
+          )}
+
+          {/* History table */}
+          {!selectedDetails && !historyLoading && historyLoaded && (
+            <>
+              {historyItems.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-10 text-center">
+                  <p className="text-gray-400 text-sm">No completed exams yet.</p>
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                  <table className="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        {['Date', 'Specialization', 'Status', 'Score', 'Result', 'Actions'].map((h) => (
+                          <th key={h} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {historyItems.map((item) => {
+                        const busy = loadingDetails;
+                        const isPdf   = downloadingKey === `${item.id}-pdf`;
+                        const isExcel = downloadingKey === `${item.id}-excel`;
+                        return (
+                          <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-5 py-4 whitespace-nowrap text-gray-600 text-xs">
+                              {new Date(item.startTime).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              <p className="font-medium text-gray-800">{item.examProfile.specializationName}</p>
+                              {item.examProfile.isExpert && (
+                                <span className="text-xs text-purple-600">Expert</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                item.status === 'SUBMITTED' ? 'bg-blue-100 text-blue-700' :
+                                item.status === 'TIMED_OUT' ? 'bg-red-100 text-red-600'  :
+                                                              'bg-yellow-100 text-yellow-700'
+                              }`}>
+                                {item.status}
+                              </span>
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap tabular-nums text-gray-700">
+                              {item.finalScore !== null ? `${item.finalScore.toFixed(1)}%` : '—'}
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              {item.passed === true  && <span className="text-xs font-bold text-green-700">PASSED</span>}
+                              {item.passed === false && <span className="text-xs font-bold text-red-600">FAILED</span>}
+                              {item.passed === null  && <span className="text-xs text-gray-400">—</span>}
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => void handleViewDetails(item.id)}
+                                  disabled={busy}
+                                  className="rounded-lg bg-gray-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 disabled:opacity-50 transition-colors"
+                                >
+                                  {busy ? '…' : 'Details'}
+                                </button>
+                                <button
+                                  onClick={() => void handleDownloadReport(item.id, 'pdf')}
+                                  disabled={downloadingKey !== null}
+                                  className="rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+                                >
+                                  {isPdf ? '…' : 'PDF'}
+                                </button>
+                                <button
+                                  onClick={() => void handleDownloadReport(item.id, 'excel')}
+                                  disabled={downloadingKey !== null}
+                                  className="rounded-lg bg-emerald-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50 transition-colors"
+                                >
+                                  {isExcel ? '…' : 'Excel'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

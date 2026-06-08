@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir *)",
+      "Bash(npm run *)",
+      "Bash(Get-ChildItem -Recurse -Directory \"C:\\\\Users\\\\AI - For Everything\\\\Desktop\\\\Exam-Platform\\\\frontend\\\\src\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(git *)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}
