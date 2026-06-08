@@ -52,4 +52,16 @@ const uploadImage = asyncHandler(async (req, res) => {
   res.json({ imageUrl, question });
 });
 
-module.exports = { createQuestion, submitQuestion, approveQuestion, editQuestion, uploadImage };
+// GET /api/questions/chapters
+const getChapters = asyncHandler(async (req, res) => {
+  const chapters = await questionService.getAllChapters();
+  res.json(chapters);
+});
+
+// GET /api/questions
+const getQuestions = asyncHandler(async (req, res) => {
+  const questions = await questionService.getQuestions();
+  res.json(questions);
+});
+
+module.exports = { createQuestion, submitQuestion, approveQuestion, editQuestion, uploadImage, getChapters, getQuestions };

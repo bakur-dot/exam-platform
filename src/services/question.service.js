@@ -338,6 +338,21 @@ async function getQuestionHistory(questionGroupId) {
   });
 }
 
+async function getAllChapters() {
+  return prisma.chapter.findMany({
+    include: { specialization: true },
+    orderBy: [{ specialization: { name: 'asc' } }, { name: 'asc' }],
+  });
+}
+
+async function getQuestions() {
+  return prisma.question.findMany({
+    where:   { isActive: true },
+    include: { chapter: { include: { specialization: true } }, answers: true },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
 module.exports = {
   QuestionError,
   createDraft,
@@ -347,4 +362,6 @@ module.exports = {
   editQuestion,
   getExamQuestions,
   getQuestionHistory,
+  getAllChapters,
+  getQuestions,
 };
