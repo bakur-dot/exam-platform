@@ -110,12 +110,13 @@ All routes are prefixed with `/api`. All protected routes require `Authorization
 
 | Method | Path | Auth (min role) | Description |
 |---|---|---|---|
-| GET | `/` | Examiner | List all active questions |
-| POST | `/` | Examiner | Create question with answers |
+| GET | `/` | Examiner | List all active (non-archived) questions with chapter and answers |
+| GET | `/chapters` | Examiner | Fetch all chapters (with specialization) for question creation dropdown |
+| POST | `/` | Examiner | Create question draft with answers (`content`, `chapterId`, `answers[]`) |
 | PUT | `/:id` | Examiner | Edit question (in-place for DRAFT/REJECTED; creates new version for APPROVED) |
-| DELETE | `/:id` | Admin | Soft-delete (sets `isActive=false`) |
-| PATCH | `/:id/status` | Admin | Advance/reject question status |
-| POST | `/:id/image` | Examiner | Upload question image (`multipart/form-data`, field: `image`) |
+| POST | `/:id/submit` | Examiner | Submit DRAFT question for admin review (DRAFT → PENDING) |
+| POST | `/:id/approve` | Admin | Approve a PENDING question (PENDING → APPROVED) |
+| POST | `/:id/upload` | Examiner | Upload question image (`multipart/form-data`, field: `document`) |
 
 ### `/api/exams`
 
@@ -148,10 +149,13 @@ All routes are prefixed with `/api`. All protected routes require `Authorization
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/upload-document` | Candidate | Upload one document (`multipart/form-data`, field: `document`, `docType` in body) |
-| PATCH | `/documents/:id/review` | Admin | Set document status; `reason` required for REJECTED/RETURNED |
+| GET | `/documents` | Candidate | List all documents uploaded by the authenticated candidate |
 | GET | `/eligibility` | Candidate | Returns `{ eligible: bool }` — true if all 4 doc types are APPROVED |
-| POST | `/bulk-import` | Admin | Upload CSV (`field: file`); returns `{ created, skipped, errors[], users[{email, initialPassword}] }` |
+| GET | `/pending-documents` | Admin/SuperAdmin | Fetch all PENDING documents (with candidate name & email) for the admin review queue |
+| POST | `/documents` | Candidate | Upload one document (`multipart/form-data`, fields: `document` + `docType`) |
+| POST | `/documents/:id/review` | Admin | Set document status (APPROVED/REJECTED/RETURNED); `reason` required for REJECTED/RETURNED |
+| PATCH | `/documents/:id/review` | Admin | Same as POST review — REST-correct alias |
+| POST | `/import` | Admin | Bulk-import candidates from CSV (`field: file`); returns `{ created, skipped, errors[], users[{email, initialPassword}] }` |
 
 ### `/api/sessions`
 
