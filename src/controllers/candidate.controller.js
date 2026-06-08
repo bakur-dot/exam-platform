@@ -59,4 +59,10 @@ const getMyEligibility = asyncHandler(async (req, res) => {
   res.json({ eligible });
 });
 
-module.exports = { uploadDoc, reviewDoc, importCandidates, getMyDocuments, getMyEligibility };
+// GET /api/candidates/pending-documents  — Admin / SuperAdmin
+const getPendingDocuments = asyncHandler(async (req, res) => {
+  const docs = await candidateService.getPendingDocuments();
+  res.json(docs);
+});
+
+module.exports = { uploadDoc, reviewDoc, importCandidates, getMyDocuments, getMyEligibility, getPendingDocuments };

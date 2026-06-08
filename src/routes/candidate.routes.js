@@ -21,6 +21,13 @@ router.get(
   ctrl.getMyEligibility
 );
 
+// Admin / SuperAdmin fetches all PENDING documents for review queue
+router.get(
+  '/pending-documents',
+  requireAuth, requireRole('Admin', 'SuperAdmin'),
+  ctrl.getPendingDocuments
+);
+
 // Candidate uploads one of their 4 required registration documents
 router.post(
   '/documents',
@@ -30,7 +37,13 @@ router.post(
 );
 
 // Admin / SuperAdmin approves, rejects, or returns a document for revision
+// Registered as both POST (legacy) and PATCH (REST-correct)
 router.post(
+  '/documents/:id/review',
+  requireAuth, requireRole('Admin', 'SuperAdmin'),
+  ctrl.reviewDoc
+);
+router.patch(
   '/documents/:id/review',
   requireAuth, requireRole('Admin', 'SuperAdmin'),
   ctrl.reviewDoc

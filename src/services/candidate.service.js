@@ -213,6 +213,13 @@ async function getMyDocuments(userId) {
   return prisma.candidateDocument.findMany({ where: { userId } });
 }
 
+async function getPendingDocuments() {
+  return prisma.candidateDocument.findMany({
+    where:   { status: 'PENDING' },
+    include: { user: { select: { name: true, email: true } } },
+  });
+}
+
 module.exports = {
   CandidateError,
   uploadDocument,
@@ -220,4 +227,5 @@ module.exports = {
   checkExamEligibility,
   bulkImportCandidates,
   getMyDocuments,
+  getPendingDocuments,
 };
