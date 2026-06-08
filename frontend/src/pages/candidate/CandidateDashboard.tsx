@@ -129,6 +129,15 @@ interface HistoryItem {
   };
 }
 
+interface CandidateAppeal {
+  id: number;
+  attemptId: number;
+  status: 'PENDING' | 'REVIEWED';
+  decisionNotes: string | null;
+  isScoreChanged: boolean;
+  createdAt: string;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DOC_TYPES: DocType[] = ['DIPLOMA', 'EXPERIENCE', 'ID_CARD', 'PHOTO'];
@@ -264,6 +273,13 @@ export default function CandidateDashboard() {
   const [downloadingKey, setDownloadingKey]   = useState<string | null>(null);
   const [historyError, setHistoryError]       = useState('');
 
+  // Appeals state
+  const [appeals, setAppeals]               = useState<Record<number, CandidateAppeal>>({});
+  const [appealAttemptId, setAppealAttemptId] = useState<number | null>(null);
+  const [appealFile, setAppealFile]         = useState<File | null>(null);
+  const [submittingAppeal, setSubmittingAppeal] = useState(false);
+  const [appealError, setAppealError]       = useState('');
+
   // UI feedback
   const [error, setError]               = useState('');
   const [uploadingType, setUploadingType] = useState<DocType | null>(null);
@@ -393,8 +409,14 @@ export default function CandidateDashboard() {
     setHistoryLoading(true);
     setHistoryError('');
     try {
-      const { data } = await api.get<HistoryItem[]>('/reports/history');
-      setHistoryItems(data);
+      const [histRes, appsRes] = await Promise.all([
+        api.get<HistoryItem[]>('/reports/history'),
+        api.get<CandidateAppeal[]>('/appeals/mine'),
+      ]);
+      setHistoryItems(histRes.data);
+      const map: Record<number, CandidateAppeal> = {};
+      for (const a of appsRes.data) map[a.attemptId] = a;
+      setAppeals(map);
       setHistoryLoaded(true);
     } catch (err) {
       setHistoryError(axiosMsg(err, 'Failed to load exam history.'));
@@ -433,6 +455,28 @@ export default function CandidateDashboard() {
       setHistoryError(axiosMsg(err, `Failed to download ${fmt.toUpperCase()}.`));
     } finally {
       setDownloadingKey(null);
+    }
+  }
+
+  // ── Appeals ───────────────────────────────────────────────────────────────
+
+  async function handleSubmitAppeal(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!appealAttemptId || !appealFile) return;
+    setSubmittingAppeal(true);
+    setAppealError('');
+    try {
+      const form = new FormData();
+      form.append('attemptId', String(appealAttemptId));
+      form.append('document', appealFile);
+      const { data } = await api.post<CandidateAppeal>('/appeals', form);
+      setAppeals(prev => ({ ...prev, [appealAttemptId]: data }));
+      setAppealAttemptId(null);
+      setAppealFile(null);
+    } catch (err) {
+      setAppealError(axiosMsg(err, 'Failed to submit appeal.'));
+    } finally {
+      setSubmittingAppeal(false);
     }
   }
 
@@ -830,6 +874,49 @@ export default function CandidateDashboard() {
   const docMap = new Map(documents.map((d) => [d.docType, d]));
 
   return (
+    <>
+    {/* Appeal submission modal */}
+    {appealAttemptId !== null && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-md space-y-4 p-6">
+          <h2 className="text-lg font-semibold text-gray-800">Submit Appeal</h2>
+          <p className="text-sm text-gray-500">
+            Upload a supporting document (PDF, JPEG, or PNG — max 10 MB).
+            You can only appeal once per attempt.
+          </p>
+          {appealError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+              <p className="text-sm text-red-600">{appealError}</p>
+            </div>
+          )}
+          <form onSubmit={handleSubmitAppeal} className="space-y-4">
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              required
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAppealFile(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
+            />
+            <div className="flex items-center gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => { setAppealAttemptId(null); setAppealFile(null); setAppealError(''); }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!appealFile || submittingAppeal}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+              >
+                {submittingAppeal ? 'Uploading…' : 'Submit Appeal'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
     <div className="max-w-4xl mx-auto space-y-6">
 
       {/* Page header */}
@@ -1029,20 +1116,21 @@ export default function CandidateDashboard() {
                   <p className="text-gray-400 text-sm">No completed exams yet.</p>
                 </div>
               ) : (
-                <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
                   <table className="min-w-full divide-y divide-gray-200 text-sm">
                     <thead className="bg-gray-50">
                       <tr>
-                        {['Date', 'Specialization', 'Status', 'Score', 'Result', 'Actions'].map((h) => (
+                        {['Date', 'Specialization', 'Status', 'Score', 'Result', 'Actions', 'Appeal'].map((h) => (
                           <th key={h} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {historyItems.map((item) => {
-                        const busy = loadingDetails;
+                        const busy    = loadingDetails;
                         const isPdf   = downloadingKey === `${item.id}-pdf`;
                         const isExcel = downloadingKey === `${item.id}-excel`;
+                        const appeal  = appeals[item.id];
                         return (
                           <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                             <td className="px-5 py-4 whitespace-nowrap text-gray-600 text-xs">
@@ -1096,6 +1184,39 @@ export default function CandidateDashboard() {
                                 </button>
                               </div>
                             </td>
+                            {/* Appeal column */}
+                            <td className="px-5 py-4 whitespace-nowrap min-w-[120px]">
+                              {item.status === 'SUBMITTED' ? (
+                                !appeal ? (
+                                  <button
+                                    onClick={() => { setAppealAttemptId(item.id); setAppealError(''); }}
+                                    className="rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
+                                  >
+                                    Appeal
+                                  </button>
+                                ) : appeal.status === 'PENDING' ? (
+                                  <span className="inline-block rounded-full bg-yellow-100 text-yellow-700 px-2.5 py-0.5 text-xs font-semibold">
+                                    PENDING
+                                  </span>
+                                ) : (
+                                  <div className="space-y-1">
+                                    <span className="inline-block rounded-full bg-indigo-100 text-indigo-700 px-2.5 py-0.5 text-xs font-semibold">
+                                      REVIEWED
+                                    </span>
+                                    {appeal.decisionNotes && (
+                                      <p
+                                        className="text-xs text-gray-500 max-w-[160px] truncate cursor-help"
+                                        title={appeal.decisionNotes}
+                                      >
+                                        {appeal.decisionNotes}
+                                      </p>
+                                    )}
+                                  </div>
+                                )
+                              ) : (
+                                <span className="text-gray-300 text-xs">—</span>
+                              )}
+                            </td>
                           </tr>
                         );
                       })}
@@ -1108,5 +1229,6 @@ export default function CandidateDashboard() {
         </div>
       )}
     </div>
+    </>
   );
 }

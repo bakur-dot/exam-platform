@@ -8,7 +8,7 @@ import type { SessionReportData } from '../../components/reports/SessionReport';
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 type ReviewStatus = 'APPROVED' | 'REJECTED' | 'RETURNED';
-type AdminTab     = 'documents' | 'reports';
+type AdminTab     = 'documents' | 'reports' | 'appeals';
 type ReportSubTab = 'sessions' | 'thematic';
 
 interface PendingDocument {
@@ -31,6 +31,26 @@ interface ReportProfile {
   id: number;
   isExpert: boolean;
   specialization: { id: number; name: string };
+}
+
+interface AdminAppeal {
+  id: number;
+  attemptId: number;
+  documentUrl: string;
+  status: 'PENDING' | 'REVIEWED';
+  decisionNotes: string | null;
+  isScoreChanged: boolean;
+  createdAt: string;
+  attempt: {
+    id: number;
+    finalScore: number | null;
+    user: { id: number; name: string; email: string; };
+    examProfile: {
+      id: number;
+      passingScore: number;
+      specialization: { id: number; name: string; };
+    };
+  };
 }
 
 interface ThematicStats {
@@ -61,6 +81,7 @@ function StatusBadge({ status }: { status: string }) {
     APPROVED: 'bg-green-100  text-green-700',
     REJECTED: 'bg-red-100    text-red-700',
     RETURNED: 'bg-orange-100 text-orange-700',
+    REVIEWED: 'bg-indigo-100 text-indigo-700',
   };
   return (
     <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${styles[status] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -119,6 +140,20 @@ export default function AdminDashboard() {
   const [thematicStats,      setThematicStats]      = useState<ThematicStats | null>(null);
   const [loadingThematic,    setLoadingThematic]    = useState(false);
   const [thematicError,      setThematicError]      = useState('');
+
+  // — Appeals tab —
+  const [appeals,          setAppeals]          = useState<AdminAppeal[]>([]);
+  const [appealsLoaded,    setAppealsLoaded]    = useState(false);
+  const [appealsLoading,   setAppealsLoading]   = useState(false);
+  const [appealsError,     setAppealsError]     = useState('');
+
+  // — Review modal —
+  const [reviewingAppeal,   setReviewingAppeal]   = useState<AdminAppeal | null>(null);
+  const [reviewNotes,       setReviewNotes]       = useState('');
+  const [reviewScoreChanged, setReviewScoreChanged] = useState(false);
+  const [reviewNewScore,    setReviewNewScore]    = useState('');
+  const [submittingReview,  setSubmittingReview]  = useState(false);
+  const [reviewError,       setReviewError]       = useState('');
 
   // ── Document review ────────────────────────────────────────────────────────
 
@@ -217,9 +252,139 @@ export default function AdminDashboard() {
     }
   }
 
+  // ── Appeals tab ────────────────────────────────────────────────────────────
+
+  async function loadAppeals(force = false) {
+    if (appealsLoaded && !force) return;
+    setAppealsLoading(true);
+    setAppealsError('');
+    try {
+      const { data } = await api.get<AdminAppeal[]>('/appeals');
+      setAppeals(data);
+      setAppealsLoaded(true);
+    } catch (err) {
+      setAppealsError(axiosMsg(err, 'Failed to load appeals.'));
+    } finally {
+      setAppealsLoading(false);
+    }
+  }
+
+  function openReviewModal(appeal: AdminAppeal) {
+    setReviewingAppeal(appeal);
+    setReviewNotes('');
+    setReviewScoreChanged(false);
+    setReviewNewScore(appeal.attempt.finalScore !== null ? String(Math.round(appeal.attempt.finalScore)) : '');
+    setReviewError('');
+  }
+
+  async function handleSubmitReview(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!reviewingAppeal) return;
+    setSubmittingReview(true);
+    setReviewError('');
+    try {
+      await api.post(`/appeals/${reviewingAppeal.id}/review`, {
+        decisionNotes:  reviewNotes,
+        isScoreChanged: reviewScoreChanged,
+        newFinalScore:  reviewScoreChanged ? Number(reviewNewScore) : undefined,
+      });
+      setAppeals(prev => prev.map(a =>
+        a.id === reviewingAppeal.id
+          ? { ...a, status: 'REVIEWED', decisionNotes: reviewNotes, isScoreChanged: reviewScoreChanged }
+          : a
+      ));
+      setReviewingAppeal(null);
+    } catch (err) {
+      setReviewError(axiosMsg(err, 'Failed to submit review.'));
+    } finally {
+      setSubmittingReview(false);
+    }
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
+    <>
+    {/* Review modal */}
+    {reviewingAppeal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-lg space-y-4 p-6">
+          <h2 className="text-lg font-semibold text-gray-800">Review Appeal</h2>
+          <div className="text-sm text-gray-500 space-y-0.5">
+            <p>Candidate: <span className="font-medium text-gray-700">{reviewingAppeal.attempt.user.name}</span></p>
+            <p>Profile: <span className="font-medium text-gray-700">{reviewingAppeal.attempt.examProfile.specialization.name}</span></p>
+            <p>
+              Current score:{' '}
+              <span className="font-medium text-gray-700 tabular-nums">
+                {reviewingAppeal.attempt.finalScore !== null ? `${reviewingAppeal.attempt.finalScore.toFixed(1)}%` : '—'}
+              </span>
+              {' '}(passing: {reviewingAppeal.attempt.examProfile.passingScore}%)
+            </p>
+          </div>
+          {reviewError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+              <p className="text-sm text-red-600">{reviewError}</p>
+            </div>
+          )}
+          <form onSubmit={handleSubmitReview} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Decision Notes <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                required
+                rows={4}
+                value={reviewNotes}
+                onChange={(e) => setReviewNotes(e.target.value)}
+                placeholder="Summarize the commission's decision…"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+              />
+            </div>
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={reviewScoreChanged}
+                onChange={(e) => setReviewScoreChanged(e.target.checked)}
+                className="h-4 w-4 rounded accent-indigo-600"
+              />
+              <span className="text-sm font-medium text-gray-700">Override the final score</span>
+            </label>
+            {reviewScoreChanged && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">New Final Score (0–100)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.1}
+                  required
+                  value={reviewNewScore}
+                  onChange={(e) => setReviewNewScore(e.target.value)}
+                  className="w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            )}
+            <div className="flex items-center gap-3 justify-end pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setReviewingAppeal(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submittingReview || !reviewNotes.trim()}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+              >
+                {submittingReview ? 'Submitting…' : 'Submit Decision'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
+
     <div className="max-w-6xl mx-auto space-y-6">
 
       {/* Header */}
@@ -232,6 +397,7 @@ export default function AdminDashboard() {
         {([
           { key: 'documents', label: 'Document Review' },
           { key: 'reports',   label: 'Reports & Analytics' },
+          { key: 'appeals',   label: 'Appeals Review' },
         ] as { key: AdminTab; label: string }[]).map(({ key, label }) => (
           <button
             key={key}
@@ -239,6 +405,7 @@ export default function AdminDashboard() {
             onClick={() => {
               setActiveTab(key);
               if (key === 'reports') void loadReportsData();
+              if (key === 'appeals') void loadAppeals();
             }}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               activeTab === key
@@ -552,6 +719,116 @@ export default function AdminDashboard() {
           )}
         </div>
       )}
+
+      {/* ── Appeals Review tab ───────────────────────────────────────────────── */}
+      {activeTab === 'appeals' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <p className="text-sm text-gray-500">
+              {appealsLoading
+                ? 'Loading…'
+                : appeals.length === 0
+                  ? 'No appeals filed yet.'
+                  : `${appeals.length} appeal${appeals.length !== 1 ? 's' : ''} total · ${appeals.filter(a => a.status === 'PENDING').length} pending`}
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadAppeals(true)}
+              disabled={appealsLoading}
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            >
+              {appealsLoading ? 'Loading…' : 'Refresh'}
+            </button>
+          </div>
+
+          {appealsError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+              <p className="text-sm text-red-600">{appealsError}</p>
+            </div>
+          )}
+
+          {appealsLoading && (
+            <div className="flex items-center justify-center h-32">
+              <p className="text-gray-400 text-sm animate-pulse">Loading appeals…</p>
+            </div>
+          )}
+
+          {!appealsLoading && appealsLoaded && appeals.length === 0 && (
+            <div className="rounded-xl border border-dashed border-gray-300 bg-white py-16 text-center">
+              <p className="text-gray-400 text-sm">No appeals have been filed yet.</p>
+            </div>
+          )}
+
+          {!appealsLoading && appeals.length > 0 && (
+            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    {['Filed', 'Candidate', 'Profile', 'Score', 'Document', 'Status', 'Actions'].map((h) => (
+                      <th key={h} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {appeals.map((appeal) => (
+                    <tr key={appeal.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-5 py-4 whitespace-nowrap text-xs text-gray-500">
+                        {new Date(appeal.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <p className="font-medium text-gray-800">{appeal.attempt.user.name}</p>
+                        <p className="text-xs text-gray-400">{appeal.attempt.user.email}</p>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <p className="font-medium text-gray-700">{appeal.attempt.examProfile.specialization.name}</p>
+                        <p className="text-xs text-gray-400">Pass: {appeal.attempt.examProfile.passingScore}%</p>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap tabular-nums text-gray-700">
+                        {appeal.attempt.finalScore !== null ? `${appeal.attempt.finalScore.toFixed(1)}%` : '—'}
+                        {appeal.isScoreChanged && (
+                          <span className="ml-1 text-xs text-indigo-600">↑ overridden</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <a
+                          href={`http://localhost:3000${appeal.documentUrl}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-200 transition-colors"
+                        >
+                          View ↗
+                        </a>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <StatusBadge status={appeal.status} />
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        {appeal.status === 'PENDING' ? (
+                          <button
+                            type="button"
+                            onClick={() => openReviewModal(appeal)}
+                            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
+                          >
+                            Review
+                          </button>
+                        ) : (
+                          <span
+                            className="text-xs text-gray-400 cursor-help"
+                            title={appeal.decisionNotes ?? ''}
+                          >
+                            Reviewed ✓
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
+    </>
   );
 }

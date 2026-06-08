@@ -7,6 +7,12 @@ const ctrl = require('../controllers/appeal.controller');
 
 const router = Router();
 
+// GET /api/appeals/mine — Candidate: list own appeals
+router.get('/mine', requireAuth, requireRole('Candidate'), ctrl.getMyAppeals);
+
+// GET /api/appeals — Admin / SuperAdmin: list all appeals
+router.get('/', requireAuth, requireRole('Admin', 'SuperAdmin'), ctrl.getAppeals);
+
 // File an appeal — Candidate, multipart/form-data with `document` file field
 router.post(
   '/',
