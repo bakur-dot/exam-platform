@@ -55,6 +55,12 @@ const authorizeStart = asyncHandler(async (req, res) => {
   res.json(seat);
 });
 
+// GET /api/sessions/mine  — Candidate (their own seats)
+const getMySessions = asyncHandler(async (req, res) => {
+  const seats = await sessionService.getMySessions(req.user.sub);
+  res.json(seats);
+});
+
 // GET /api/sessions  — Examiner / Admin / SuperAdmin
 const getSessions = asyncHandler(async (req, res) => {
   const sessions = await sessionService.getSessions();
@@ -67,4 +73,4 @@ const getSessionById = asyncHandler(async (req, res) => {
   res.json(session);
 });
 
-module.exports = { createSession, addCandidate, signProtocol, authorizeStart, getSessions, getSessionById };
+module.exports = { createSession, addCandidate, signProtocol, authorizeStart, getMySessions, getSessions, getSessionById };

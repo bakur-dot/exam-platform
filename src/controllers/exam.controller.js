@@ -74,6 +74,77 @@ const finishExam = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
+// GET /api/exams/active  — Candidate (page-refresh recovery)
+const getActiveAttempt = asyncHandler(async (req, res) => {
+  const attempt = await prisma.candidateAttempt.findFirst({
+    where: { userId: req.user.sub, status: 'IN_PROGRESS' },
+    include: {
+      examProfile: {
+        include: { specialization: { select: { id: true, name: true } } },
+      },
+      answers: {
+        include: {
+          question: {
+            include: {
+              answers: { select: { id: true, content: true } },
+              chapter: { select: { id: true, name: true } },
+            },
+          },
+        },
+      },
+      assignedProjects: {
+        include: {
+          project: {
+            include: {
+              mistakes: { select: { id: true, description: true, penaltyPoints: true } },
+            },
+          },
+          mistakes: { select: { mistakeId: true } },
+        },
+      },
+    },
+  });
+
+  if (!attempt) {
+    return res.status(404).json({ error: 'No active attempt found.' });
+  }
+
+  const profile   = attempt.examProfile;
+  const expiresAt = new Date(
+    attempt.startTime.getTime() + profile.durationMinutes * 60 * 1000
+  );
+
+  const savedAnswers = {};
+  for (const aa of attempt.answers) {
+    savedAnswers[aa.questionId] = aa.selectedAnswerId;
+  }
+
+  res.json({
+    attempt: {
+      id:        attempt.id,
+      sessionId: attempt.sessionId,
+      startTime: attempt.startTime,
+      expiresAt,
+      status:    attempt.status,
+    },
+    exam: {
+      profileId:          profile.id,
+      specializationName: profile.specialization.name,
+      durationMinutes:    profile.durationMinutes,
+      questionCount:      profile.questionCount,
+      passingScore:       profile.passingScore,
+      isExpert:           profile.isExpert,
+      requiresProjects:   profile.requiresProjects,
+    },
+    questions:    attempt.answers.map(aa => aa.question),
+    projects:     attempt.assignedProjects.map(ap => ({
+      ...ap.project,
+      savedMistakeIds: ap.mistakes.map(m => m.mistakeId),
+    })),
+    savedAnswers,
+  });
+});
+
 // GET /api/exams/profiles  — Examiner / Admin / SuperAdmin
 // Intentionally defined in exam.controller but accessed before the Candidate-only
 // blanket router.use() guard in exam.routes.js (see route file for explanation).
@@ -85,4 +156,4 @@ const getProfiles = asyncHandler(async (req, res) => {
   res.json(profiles);
 });
 
-module.exports = { generateExam, saveAnswer, saveProjectMistakes, finishExam, getProfiles };
+module.exports = { generateExam, saveAnswer, saveProjectMistakes, finishExam, getProfiles, getActiveAttempt };

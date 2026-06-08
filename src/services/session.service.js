@@ -192,6 +192,23 @@ async function authorizeStart(sessionId, candidateId, authorizedBy) {
   return updated;
 }
 
+async function getMySessions(candidateId) {
+  return prisma.sessionCandidate.findMany({
+    where: { candidateId },
+    include: {
+      session: {
+        include: {
+          examProfile: {
+            include: { specialization: { select: { id: true, name: true } } },
+          },
+          examiner: { select: { id: true, name: true } },
+        },
+      },
+    },
+    orderBy: { id: 'desc' },
+  });
+}
+
 async function getSessions() {
   return prisma.examSession.findMany({
     include: {
@@ -218,4 +235,4 @@ async function getSessionById(sessionId) {
   return session;
 }
 
-module.exports = { SessionError, createSession, addCandidateToSession, signProtocol, authorizeStart, getSessions, getSessionById };
+module.exports = { SessionError, createSession, addCandidateToSession, signProtocol, authorizeStart, getMySessions, getSessions, getSessionById };

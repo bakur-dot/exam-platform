@@ -8,6 +8,9 @@ const router = Router();
 
 const ADMIN_OR_EXAMINER = ['Examiner', 'Admin', 'SuperAdmin'];
 
+// Candidate: fetch their own session seats — must be before /:id param route
+router.get('/mine', requireAuth, requireRole('Candidate'), ctrl.getMySessions);
+
 // List all sessions + get single session — static before /:id param routes
 router.get('/',    requireAuth, requireRole(...ADMIN_OR_EXAMINER), ctrl.getSessions);
 router.get('/:id', requireAuth, requireRole(...ADMIN_OR_EXAMINER), ctrl.getSessionById);

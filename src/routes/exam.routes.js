@@ -14,6 +14,7 @@ router.get('/profiles', requireAuth, requireRole('Examiner', 'Admin', 'SuperAdmi
 // All remaining exam endpoints are Candidate-only
 router.use(requireAuth, requireRole('Candidate'));
 
+router.get('/active',                          ctrl.getActiveAttempt);
 router.post('/generate',                       ctrl.generateExam);
 router.post('/:attemptId/answers',             ctrl.saveAnswer);
 router.post('/:attemptId/projects/mistakes',   ctrl.saveProjectMistakes);
