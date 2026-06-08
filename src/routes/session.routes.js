@@ -8,6 +8,10 @@ const router = Router();
 
 const ADMIN_OR_EXAMINER = ['Examiner', 'Admin', 'SuperAdmin'];
 
+// List all sessions + get single session — static before /:id param routes
+router.get('/',    requireAuth, requireRole(...ADMIN_OR_EXAMINER), ctrl.getSessions);
+router.get('/:id', requireAuth, requireRole(...ADMIN_OR_EXAMINER), ctrl.getSessionById);
+
 // Create an exam session
 router.post(
   '/',

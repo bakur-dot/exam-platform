@@ -74,4 +74,15 @@ const finishExam = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
-module.exports = { generateExam, saveAnswer, saveProjectMistakes, finishExam };
+// GET /api/exams/profiles  — Examiner / Admin / SuperAdmin
+// Intentionally defined in exam.controller but accessed before the Candidate-only
+// blanket router.use() guard in exam.routes.js (see route file for explanation).
+const getProfiles = asyncHandler(async (req, res) => {
+  const profiles = await prisma.examProfile.findMany({
+    include: { specialization: { select: { id: true, name: true } } },
+    orderBy: { id: 'asc' },
+  });
+  res.json(profiles);
+});
+
+module.exports = { generateExam, saveAnswer, saveProjectMistakes, finishExam, getProfiles };

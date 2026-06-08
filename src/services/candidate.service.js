@@ -220,6 +220,14 @@ async function getPendingDocuments() {
   });
 }
 
+async function getCandidateList() {
+  return prisma.user.findMany({
+    where:   { role: { name: 'Candidate' } },
+    select:  { id: true, name: true, email: true },
+    orderBy: { name: 'asc' },
+  });
+}
+
 module.exports = {
   CandidateError,
   uploadDocument,
@@ -228,4 +236,5 @@ module.exports = {
   bulkImportCandidates,
   getMyDocuments,
   getPendingDocuments,
+  getCandidateList,
 };

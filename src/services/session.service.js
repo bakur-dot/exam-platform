@@ -192,4 +192,30 @@ async function authorizeStart(sessionId, candidateId, authorizedBy) {
   return updated;
 }
 
-module.exports = { SessionError, createSession, addCandidateToSession, signProtocol, authorizeStart };
+async function getSessions() {
+  return prisma.examSession.findMany({
+    include: {
+      examProfile: { include: { specialization: { select: { id: true, name: true } } } },
+      examiner:    { select: { id: true, name: true, email: true } },
+    },
+    orderBy: { scheduledTime: 'desc' },
+  });
+}
+
+async function getSessionById(sessionId) {
+  const session = await prisma.examSession.findUnique({
+    where: { id: sessionId },
+    include: {
+      examProfile: { include: { specialization: { select: { id: true, name: true } } } },
+      examiner:    { select: { id: true, name: true, email: true } },
+      candidates:  {
+        include:  { candidate: { select: { id: true, name: true, email: true } } },
+        orderBy:  { candidateNumber: 'asc' },
+      },
+    },
+  });
+  if (!session) throw new SessionError('Session not found.', 404);
+  return session;
+}
+
+module.exports = { SessionError, createSession, addCandidateToSession, signProtocol, authorizeStart, getSessions, getSessionById };

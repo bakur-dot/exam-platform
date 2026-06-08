@@ -7,6 +7,13 @@ const ctrl = require('../controllers/candidate.controller');
 
 const router = Router();
 
+// Examiner / Admin list all candidates (for session add-candidate dropdown)
+router.get(
+  '/list',
+  requireAuth, requireRole('Examiner', 'Admin', 'SuperAdmin'),
+  ctrl.getCandidateList
+);
+
 // Candidate retrieves their own submitted documents — placed before /:id routes
 router.get(
   '/documents',

@@ -65,4 +65,10 @@ const getPendingDocuments = asyncHandler(async (req, res) => {
   res.json(docs);
 });
 
-module.exports = { uploadDoc, reviewDoc, importCandidates, getMyDocuments, getMyEligibility, getPendingDocuments };
+// GET /api/candidates/list  — Examiner / Admin / SuperAdmin
+const getCandidateList = asyncHandler(async (req, res) => {
+  const candidates = await candidateService.getCandidateList();
+  res.json(candidates);
+});
+
+module.exports = { uploadDoc, reviewDoc, importCandidates, getMyDocuments, getMyEligibility, getPendingDocuments, getCandidateList };
