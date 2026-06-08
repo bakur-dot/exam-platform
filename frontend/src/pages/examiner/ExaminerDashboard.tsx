@@ -6,7 +6,7 @@ import type { SessionReportData } from '../../components/reports/SessionReport';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type DashTab = 'questions' | 'sessions';
+type DashTab = 'questions' | 'sessions' | 'grading';
 
 // — Question Bank —
 interface Specialization { id: number; name: string; }
@@ -47,6 +47,37 @@ interface ExamSession {
 }
 
 interface CandidateUser { id: number; name: string; email: string; }
+
+// — Project Assessment —
+interface GradeMistake {
+  id: number;
+  description: string;
+  penaltyPoints: number;
+}
+
+interface GradeProject {
+  attemptProjectId: number;
+  projectId: number;
+  title: string;
+  description: string;
+  fileUrl: string | null;
+  markedMistakeIds: number[];
+  allMistakes: GradeMistake[];
+}
+
+interface GradeAttempt {
+  attemptId: number;
+  candidateId: number;
+  candidateName: string;
+  candidateEmail: string;
+  candidateNumber: string;
+  status: string;
+  startTime: string;
+  examProfile: { id: number; specializationName: string; requiresProjects: boolean; };
+  projects: GradeProject[];
+}
+
+type SyncState = 'idle' | 'syncing' | 'synced' | 'error';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
 
@@ -642,6 +673,354 @@ function SessionsTab() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// Project Assessment tab
+// ══════════════════════════════════════════════════════════════════════════════
+
+function ProjectAssessmentTab() {
+  const [sessions,       setSessions]       = useState<ExamSession[]>([]);
+  const [loadingInit,    setLoadingInit]    = useState(true);
+
+  const [sessionId,      setSessionId]      = useState('');
+  const [attempts,       setAttempts]       = useState<GradeAttempt[]>([]);
+  const [loadingAttempts,setLoadingAttempts]= useState(false);
+  const [attemptsError,  setAttemptsError]  = useState('');
+
+  // Which candidate card is expanded
+  const [expandedId,  setExpandedId]  = useState<number | null>(null);
+
+  // marks: attemptProjectId → mistakeId[]
+  const [marksMap,    setMarksMap]    = useState<Record<number, number[]>>({});
+
+  // sync status: attemptProjectId → SyncState
+  const [syncState,   setSyncState]   = useState<Record<number, SyncState>>({});
+  const [syncErrors,  setSyncErrors]  = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    async function init() {
+      try {
+        const { data } = await api.get<ExamSession[]>('/sessions');
+        setSessions(data);
+      } finally {
+        setLoadingInit(false);
+      }
+    }
+    void init();
+  }, []);
+
+  async function loadAttempts() {
+    if (!sessionId) return;
+    setLoadingAttempts(true);
+    setAttemptsError('');
+    setAttempts([]);
+    setExpandedId(null);
+    setMarksMap({});
+    setSyncState({});
+    setSyncErrors({});
+    try {
+      const { data } = await api.get<GradeAttempt[]>(`/exams/sessions/${sessionId}/project-grading`);
+      setAttempts(data);
+      // Pre-populate marks from existing database state
+      const init: Record<number, number[]> = {};
+      for (const a of data) {
+        for (const p of a.projects) {
+          init[p.attemptProjectId] = [...p.markedMistakeIds];
+        }
+      }
+      setMarksMap(init);
+    } catch (err) {
+      setAttemptsError(axiosMsg(err, 'Failed to load grading list.'));
+    } finally {
+      setLoadingAttempts(false);
+    }
+  }
+
+  async function handleToggle(
+    attemptId:        number,
+    attemptProjectId: number,
+    projectId:        number,
+    mistakeId:        number
+  ) {
+    const previous  = marksMap[attemptProjectId] ?? [];
+    const current   = new Set(previous);
+    if (current.has(mistakeId)) {
+      current.delete(mistakeId);
+    } else {
+      current.add(mistakeId);
+    }
+    const newIds = [...current];
+
+    // Optimistic update
+    setMarksMap(m => ({ ...m, [attemptProjectId]: newIds }));
+    setSyncState(s => ({ ...s, [attemptProjectId]: 'syncing' }));
+    setSyncErrors(e => ({ ...e, [attemptProjectId]: '' }));
+
+    try {
+      await api.post(`/exams/${attemptId}/projects/marks`, { projectId, mistakeIds: newIds });
+      setSyncState(s => ({ ...s, [attemptProjectId]: 'synced' }));
+      setTimeout(
+        () => setSyncState(s => ({ ...s, [attemptProjectId]: 'idle' })),
+        2000
+      );
+    } catch (err) {
+      // Rollback
+      setMarksMap(m => ({ ...m, [attemptProjectId]: previous }));
+      setSyncState(s => ({ ...s, [attemptProjectId]: 'error' }));
+      setSyncErrors(e => ({ ...e, [attemptProjectId]: axiosMsg(err, 'Sync failed.') }));
+    }
+  }
+
+  if (loadingInit) {
+    return (
+      <div className="flex items-center justify-center h-48">
+        <p className="text-gray-400 text-sm animate-pulse">Loading sessions…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Session picker */}
+      <div className="flex items-end gap-3 flex-wrap">
+        <div className="flex-1 min-w-64">
+          <label className="block text-xs font-medium text-gray-600 mb-1">Exam Session</label>
+          <select
+            value={sessionId}
+            onChange={(e) => { setSessionId(e.target.value); setAttempts([]); }}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">Select a session…</option>
+            {sessions.map((s) => (
+              <option key={s.id} value={s.id}>
+                #{s.id} — {s.examProfile.specialization.name}
+                {s.examProfile.isExpert ? ' (Expert)' : ''}{' '}
+                · {new Date(s.scheduledTime).toLocaleDateString()}
+                · {s.location}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="button"
+          onClick={() => void loadAttempts()}
+          disabled={!sessionId || loadingAttempts}
+          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+        >
+          {loadingAttempts ? 'Loading…' : 'Load Grading List'}
+        </button>
+        {attempts.length > 0 && (
+          <button
+            type="button"
+            onClick={() => void loadAttempts()}
+            disabled={loadingAttempts}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          >
+            Refresh
+          </button>
+        )}
+      </div>
+
+      {attemptsError && (
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+          <p className="text-sm text-red-600">{attemptsError}</p>
+        </div>
+      )}
+
+      {/* No results */}
+      {!loadingAttempts && sessionId && attempts.length === 0 && (
+        <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-10 text-center">
+          <p className="text-gray-500 text-sm font-medium">No active project evaluations</p>
+          <p className="text-gray-400 text-xs mt-1">
+            Candidates will appear here once they start an exam that requires project assessment.
+          </p>
+        </div>
+      )}
+
+      {/* Candidate grading list */}
+      {attempts.map((attempt) => {
+        const isExpanded = expandedId === attempt.attemptId;
+
+        return (
+          <div
+            key={attempt.attemptId}
+            className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden"
+          >
+            {/* Candidate header row */}
+            <button
+              type="button"
+              onClick={() => setExpandedId(isExpanded ? null : attempt.attemptId)}
+              className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left"
+            >
+              <div className="flex items-center gap-4">
+                <span className="font-mono text-sm font-bold text-gray-600 bg-gray-100 rounded px-2 py-0.5">
+                  #{attempt.candidateNumber}
+                </span>
+                <div>
+                  <p className="font-medium text-gray-800">{attempt.candidateName}</p>
+                  <p className="text-xs text-gray-400">{attempt.candidateEmail}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-500">
+                  {attempt.projects.length} project{attempt.projects.length !== 1 ? 's' : ''}
+                </span>
+                <span className="inline-block rounded-full bg-yellow-100 text-yellow-700 px-2.5 py-0.5 text-xs font-semibold">
+                  {attempt.status}
+                </span>
+                <span className="text-gray-400 text-sm">{isExpanded ? '▲' : '▼'}</span>
+              </div>
+            </button>
+
+            {/* Expanded grading panel */}
+            {isExpanded && (
+              <div className="border-t border-gray-100 px-5 py-5 space-y-6 bg-gray-50/50">
+                {attempt.projects.map((project) => {
+                  const marked      = new Set(marksMap[project.attemptProjectId] ?? []);
+                  const totalPenalty = [...marked]
+                    .reduce((sum, id) => {
+                      const m = project.allMistakes.find(m => m.id === id);
+                      return sum + (m?.penaltyPoints ?? 0);
+                    }, 0);
+                  const maxPenalty   = project.allMistakes.reduce((s, m) => s + m.penaltyPoints, 0);
+                  const projScore    = Math.max(0, 100 - totalPenalty);
+                  const sync         = syncState[project.attemptProjectId] ?? 'idle';
+                  const syncErr      = syncErrors[project.attemptProjectId] ?? '';
+
+                  return (
+                    <div
+                      key={project.attemptProjectId}
+                      className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden"
+                    >
+                      {/* Project header */}
+                      <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-gray-800">{project.title}</h3>
+                          {project.description && (
+                            <p className="mt-1 text-sm text-gray-500 leading-relaxed">
+                              {project.description}
+                            </p>
+                          )}
+                          {project.fileUrl && (
+                            <a
+                              href={`http://localhost:3000${project.fileUrl}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 mt-2 text-xs font-medium text-blue-600 hover:text-blue-800"
+                            >
+                              View Project PDF ↗
+                            </a>
+                          )}
+                        </div>
+
+                        {/* Sync indicator */}
+                        <div className="shrink-0 text-right">
+                          {sync === 'syncing' && (
+                            <span className="text-xs text-blue-500 animate-pulse">Syncing…</span>
+                          )}
+                          {sync === 'synced' && (
+                            <span className="text-xs font-semibold text-green-600">Marks Synced ✓</span>
+                          )}
+                          {sync === 'error' && (
+                            <span className="text-xs font-semibold text-red-600" title={syncErr}>
+                              Sync Failed ✗
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Score preview bar */}
+                      <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-4 flex-wrap">
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="text-gray-500">Projected Score:</span>
+                          <span className={`font-bold tabular-nums text-base ${
+                            projScore >= 80 ? 'text-green-700' :
+                            projScore >= 60 ? 'text-yellow-700' :
+                                              'text-red-700'
+                          }`}>
+                            {projScore.toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="h-4 w-px bg-gray-300" />
+                        <div className="text-xs text-gray-500">
+                          Penalty:{' '}
+                          <span className={`font-semibold tabular-nums ${totalPenalty > 0 ? 'text-red-600' : 'text-gray-600'}`}>
+                            {totalPenalty.toFixed(1)}
+                          </span>
+                          {' / '}
+                          <span className="text-gray-400">{maxPenalty.toFixed(1)} pts max</span>
+                        </div>
+                        <div className="flex-1 min-w-24">
+                          <div className="w-full bg-gray-200 rounded-full h-1.5">
+                            <div
+                              className={`h-1.5 rounded-full transition-all ${
+                                projScore >= 80 ? 'bg-green-500' :
+                                projScore >= 60 ? 'bg-yellow-500' :
+                                                  'bg-red-500'
+                              }`}
+                              style={{ width: `${projScore}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Mistakes checklist */}
+                      {project.allMistakes.length === 0 ? (
+                        <div className="px-5 py-6 text-center">
+                          <p className="text-sm text-gray-400">No mistakes defined for this project.</p>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-gray-100">
+                          {project.allMistakes.map((mistake) => {
+                            const isChecked = marked.has(mistake.id);
+                            const isSyncing = sync === 'syncing';
+                            return (
+                              <label
+                                key={mistake.id}
+                                className={`flex items-start gap-3 px-5 py-3.5 cursor-pointer transition-colors select-none ${
+                                  isChecked
+                                    ? 'bg-red-50 hover:bg-red-100/70'
+                                    : 'hover:bg-gray-50'
+                                } ${isSyncing ? 'opacity-60 pointer-events-none' : ''}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  disabled={isSyncing}
+                                  onChange={() => void handleToggle(
+                                    attempt.attemptId,
+                                    project.attemptProjectId,
+                                    project.projectId,
+                                    mistake.id
+                                  )}
+                                  className="mt-0.5 h-4 w-4 shrink-0 rounded accent-red-600"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-sm leading-relaxed ${isChecked ? 'text-red-800 font-medium' : 'text-gray-700'}`}>
+                                    {mistake.description}
+                                  </p>
+                                </div>
+                                <span className={`shrink-0 text-xs font-semibold tabular-nums rounded-full px-2 py-0.5 ${
+                                  isChecked ? 'bg-red-200 text-red-800' : 'bg-gray-100 text-gray-500'
+                                }`}>
+                                  -{mistake.penaltyPoints}pts
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Root component with tab bar
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -657,6 +1036,7 @@ export default function ExaminerDashboard() {
           {([
             { key: 'questions', label: 'Question Bank' },
             { key: 'sessions',  label: 'Exam Sessions' },
+            { key: 'grading',   label: 'Project Assessment' },
           ] as { key: DashTab; label: string }[]).map(({ key, label }) => (
             <button
               key={key}
@@ -674,7 +1054,9 @@ export default function ExaminerDashboard() {
         </div>
       </div>
 
-      {activeTab === 'questions' ? <QuestionBank /> : <SessionsTab />}
+      {activeTab === 'questions' && <QuestionBank />}
+      {activeTab === 'sessions'  && <SessionsTab />}
+      {activeTab === 'grading'   && <ProjectAssessmentTab />}
     </div>
   );
 }

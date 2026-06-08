@@ -145,6 +145,98 @@ const getActiveAttempt = asyncHandler(async (req, res) => {
   });
 });
 
+// GET /api/exams/sessions/:sessionId/project-grading  — Examiner / Admin / SuperAdmin
+// Returns all IN_PROGRESS attempts in the session whose profile requires projects,
+// with each attempt's project assignments and currently marked mistakes.
+const getSessionProjectGrading = asyncHandler(async (req, res) => {
+  const sessionId = Number(req.params.sessionId);
+
+  const session = await prisma.examSession.findUnique({ where: { id: sessionId } });
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found.' });
+  }
+
+  const attempts = await prisma.candidateAttempt.findMany({
+    where: {
+      sessionId,
+      status:      'IN_PROGRESS',
+      examProfile: { requiresProjects: true },
+    },
+    include: {
+      user:        { select: { id: true, name: true, email: true } },
+      examProfile: {
+        select: {
+          id:               true,
+          requiresProjects: true,
+          specialization:   { select: { id: true, name: true } },
+        },
+      },
+      assignedProjects: {
+        include: {
+          project: {
+            include: {
+              mistakes: { select: { id: true, description: true, penaltyPoints: true } },
+            },
+          },
+          mistakes: { select: { mistakeId: true } },
+        },
+      },
+    },
+  });
+
+  // Batch-fetch candidate numbers from SessionCandidate (avoids N+1)
+  const userIds = [...new Set(attempts.map(a => a.userId))];
+  const seats   = await prisma.sessionCandidate.findMany({
+    where:  { sessionId, candidateId: { in: userIds } },
+    select: { candidateId: true, candidateNumber: true },
+  });
+  const seatMap = new Map(seats.map(s => [s.candidateId, s.candidateNumber]));
+
+  const result = attempts.map(a => ({
+    attemptId:       a.id,
+    candidateId:     a.userId,
+    candidateName:   a.user.name,
+    candidateEmail:  a.user.email,
+    candidateNumber: seatMap.get(a.userId) ?? '—',
+    status:          a.status,
+    startTime:       a.startTime,
+    examProfile: {
+      id:                 a.examProfile.id,
+      specializationName: a.examProfile.specialization.name,
+      requiresProjects:   a.examProfile.requiresProjects,
+    },
+    projects: a.assignedProjects.map(ap => ({
+      attemptProjectId: ap.id,
+      projectId:        ap.project.id,
+      title:            ap.project.title,
+      description:      ap.project.description ?? '',
+      fileUrl:          ap.project.fileUrl   ?? null,
+      markedMistakeIds: ap.mistakes.map(m => m.mistakeId),
+      allMistakes:      ap.project.mistakes,
+    })),
+  }));
+
+  res.json(result);
+});
+
+// POST /api/exams/:attemptId/projects/marks  — Examiner / Admin / SuperAdmin
+// Same business logic as saveProjectMistakes but without the candidate ownership check.
+const examinerSaveProjectMistakes = asyncHandler(async (req, res) => {
+  const attemptId = Number(req.params.attemptId);
+  const { projectId, mistakeIds } = req.body;
+
+  if (!projectId) {
+    return res.status(400).json({ error: 'projectId is required.' });
+  }
+
+  const result = await examService.saveProjectMistakes(
+    attemptId,
+    Number(projectId),
+    Array.isArray(mistakeIds) ? mistakeIds.map(Number) : []
+  );
+  res.json(result);
+});
+
 // GET /api/exams/profiles  — Examiner / Admin / SuperAdmin
 // Intentionally defined in exam.controller but accessed before the Candidate-only
 // blanket router.use() guard in exam.routes.js (see route file for explanation).
@@ -156,4 +248,8 @@ const getProfiles = asyncHandler(async (req, res) => {
   res.json(profiles);
 });
 
-module.exports = { generateExam, saveAnswer, saveProjectMistakes, finishExam, getProfiles, getActiveAttempt };
+module.exports = {
+  generateExam, saveAnswer, saveProjectMistakes, finishExam,
+  getProfiles, getActiveAttempt,
+  getSessionProjectGrading, examinerSaveProjectMistakes,
+};

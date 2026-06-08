@@ -6,10 +6,24 @@ const ctrl = require('../controllers/exam.controller');
 
 const router = Router();
 
-// GET /profiles is registered BEFORE the Candidate-only blanket guard below.
-// Express processes the layer stack in registration order; once this handler
-// sends a response, the blanket middleware is never reached for this path.
-router.get('/profiles', requireAuth, requireRole('Examiner', 'Admin', 'SuperAdmin'), ctrl.getProfiles);
+const EXAMINER_OR_ADMIN = ['Examiner', 'Admin', 'SuperAdmin'];
+
+// These routes are registered BEFORE the Candidate-only blanket guard below so
+// Examiners / Admins can reach them. Express processes handlers in registration
+// order and stops once a response is sent.
+router.get('/profiles', requireAuth, requireRole(...EXAMINER_OR_ADMIN), ctrl.getProfiles);
+
+// Project grading — Examiner / Admin / SuperAdmin
+// GET: list IN_PROGRESS attempts in a session that need project evaluation.
+// POST: examiner saves mistake marks without the candidate ownership check.
+router.get('/sessions/:sessionId/project-grading',
+  requireAuth, requireRole(...EXAMINER_OR_ADMIN),
+  ctrl.getSessionProjectGrading
+);
+router.post('/:attemptId/projects/marks',
+  requireAuth, requireRole(...EXAMINER_OR_ADMIN),
+  ctrl.examinerSaveProjectMistakes
+);
 
 // All remaining exam endpoints are Candidate-only
 router.use(requireAuth, requireRole('Candidate'));
