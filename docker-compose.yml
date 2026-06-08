@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+
+  # ── Backend: Node.js / Express / Prisma / SQLite ──────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      # Named volume for the SQLite database (persists between container restarts)
+      - db-data:/app/prisma
+      # Named volume for all user-uploaded files
+      - uploads-data:/app/public/uploads
+    environment:
+      DATABASE_URL:           "file:/app/prisma/dev.db"
+      JWT_ACCESS_SECRET:      ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET:     ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN:  ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      TOTP_ENCRYPTION_KEY:    ${TOTP_ENCRYPTION_KEY}
+      APP_NAME:               ${APP_NAME:-Exam Platform}
+      NODE_ENV:               production
+    restart: unless-stopped
+
+  # ── Frontend: Vite/React served by nginx (with /api reverse proxy) ─────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+# ── Named volumes (Docker manages the storage location) ──────────────────────
+volumes:
+  db-data:
+  uploads-data:

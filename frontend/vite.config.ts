@@ -6,5 +6,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    proxy: {
+      // Forward /api and /uploads to the backend during local development.
+      // In Docker, nginx handles this instead.
+      '/api':     { target: 'http://localhost:3000', changeOrigin: true },
+      '/uploads': { target: 'http://localhost:3000', changeOrigin: true },
+    },
   },
 })

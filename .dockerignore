@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.*
+prisma/*.db
+prisma/*.db-shm
+prisma/*.db-wal
+public/uploads/
+generated/
+frontend/
+.git/
+test/
+*.md
+dist/

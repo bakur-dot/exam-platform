@@ -1,7 +1,9 @@
 import axios from 'axios';
 import type { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 
-const BASE_URL = 'http://localhost:3000/api';
+// Relative path: nginx proxies /api → backend in Docker;
+// Vite dev server proxies /api → localhost:3000 in local development.
+const BASE_URL = '/api';
 
 const api = axios.create({
   baseURL: BASE_URL,
