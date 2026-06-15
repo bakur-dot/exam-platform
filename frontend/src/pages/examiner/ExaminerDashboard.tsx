@@ -1,6 +1,8 @@
-import axios from 'axios';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import api from '../../services/api';
+import { axiosMsg } from '../../utils/axiosMsg';
+import { SkeletonTable, Skeleton } from '../../components/ui/Skeleton';
 import SessionReport from '../../components/reports/SessionReport';
 import type { SessionReportData } from '../../components/reports/SessionReport';
 
@@ -98,14 +100,6 @@ function StatusBadge({ status, styleMap }: { status: string; styleMap?: Record<s
   );
 }
 
-function axiosMsg(err: unknown, fallback: string): string {
-  if (axios.isAxiosError(err)) {
-    const d = err.response?.data as Record<string, unknown> | undefined;
-    return (d?.error ?? d?.message ?? fallback) as string;
-  }
-  return fallback;
-}
-
 // ══════════════════════════════════════════════════════════════════════════════
 // Question Bank tab
 // ══════════════════════════════════════════════════════════════════════════════
@@ -121,8 +115,6 @@ function QuestionBank() {
   const [answers,      setAnswers]      = useState<AnswerDraft[]>(DEFAULT_ANSWERS);
   const [correctIndex, setCorrectIndex] = useState(0);
   const [submitting,   setSubmitting]   = useState(false);
-  const [formError,    setFormError]    = useState<string | null>(null);
-  const [formSuccess,  setFormSuccess]  = useState(false);
 
   async function fetchAll() {
     try {
@@ -143,15 +135,14 @@ function QuestionBank() {
   }
 
   function resetForm() {
-    setChapterId(''); setContent(''); setAnswers(DEFAULT_ANSWERS); setCorrectIndex(0); setFormError(null);
+    setChapterId(''); setContent(''); setAnswers(DEFAULT_ANSWERS); setCorrectIndex(0);
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setFormError(null); setFormSuccess(false);
     const filled = answers.filter((a) => a.content.trim());
-    if (filled.length < 2) { setFormError('Provide at least 2 answer options.'); return; }
-    if (!answers[correctIndex]?.content.trim()) { setFormError('Selected correct answer cannot be empty.'); return; }
+    if (filled.length < 2) { toast.error('Provide at least 2 answer options.'); return; }
+    if (!answers[correctIndex]?.content.trim()) { toast.error('Selected correct answer cannot be empty.'); return; }
     setSubmitting(true);
     try {
       await api.post('/questions', {
@@ -161,12 +152,12 @@ function QuestionBank() {
           .filter((a) => a.content.trim())
           .map((a, i) => ({ content: a.content.trim(), isCorrect: i === correctIndex })),
       });
-      setFormSuccess(true);
+      toast.success('Question created as DRAFT.');
       resetForm();
       const { data } = await api.get<Question[]>('/questions');
       setQuestions(data);
     } catch (err) {
-      setFormError(axiosMsg(err, 'Failed to create question.'));
+      toast.error(axiosMsg(err, 'Failed to create question.'));
     } finally {
       setSubmitting(false);
     }
@@ -179,11 +170,7 @@ function QuestionBank() {
     return acc;
   }, {});
 
-  if (loadingData) return (
-    <div className="flex items-center justify-center h-64">
-      <p className="text-gray-400 text-sm animate-pulse">Loading question bank…</p>
-    </div>
-  );
+  if (loadingData) return <SkeletonTable rows={6} cols={4} />;
 
   return (
     <div className="flex gap-6 items-start">
@@ -220,8 +207,6 @@ function QuestionBank() {
       {/* Create form */}
       <div className="w-96 shrink-0 rounded-xl border border-gray-200 bg-white shadow-sm p-6 space-y-5">
         <h2 className="text-base font-semibold text-gray-800">Create New Question</h2>
-        {formSuccess && <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3"><p className="text-sm text-green-700">Question created as DRAFT.</p></div>}
-        {formError  && <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3"><p className="text-sm text-red-600">{formError}</p></div>}
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <div>
             <label htmlFor="qChapter" className="block text-sm font-medium text-gray-700 mb-1">Chapter</label>
@@ -278,38 +263,33 @@ const SEAT_STATUS_STYLES: Record<string, string> = {
 
 function SessionsTab() {
   // — Data —
-  const [sessions,       setSessions]       = useState<ExamSession[]>([]);
-  const [profiles,       setProfiles]       = useState<ExamProfile[]>([]);
-  const [candidateList,  setCandidateList]  = useState<CandidateUser[]>([]);
-  const [loadingData,    setLoadingData]    = useState(true);
+  const [sessions,      setSessions]      = useState<ExamSession[]>([]);
+  const [profiles,      setProfiles]      = useState<ExamProfile[]>([]);
+  const [candidateList, setCandidateList] = useState<CandidateUser[]>([]);
+  const [loadingData,   setLoadingData]   = useState(true);
 
   // — Detail view —
   const [selectedSession, setSelectedSession] = useState<ExamSession | null>(null);
   const [loadingDetail,   setLoadingDetail]   = useState(false);
 
   // — Create session form —
-  const [createProfileId,    setCreateProfileId]    = useState('');
-  const [createLocation,     setCreateLocation]     = useState('');
+  const [createProfileId,     setCreateProfileId]     = useState('');
+  const [createLocation,      setCreateLocation]      = useState('');
   const [createScheduledTime, setCreateScheduledTime] = useState('');
-  const [creating,    setCreating]    = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating,            setCreating]            = useState(false);
 
   // — Add candidate form —
   const [addCandId,     setAddCandId]     = useState('');
   const [addCandNumber, setAddCandNumber] = useState('');
-  const [adding,    setAdding]    = useState(false);
-  const [addError,  setAddError]  = useState<string | null>(null);
+  const [adding,        setAdding]        = useState(false);
 
   // — Authorize —
   const [authorizingId, setAuthorizingId] = useState<number | null>(null);
-  const [authError,     setAuthError]     = useState<string | null>(null);
 
   // — Session report —
-  const [sessionReport,     setSessionReport]     = useState<SessionReportData | null>(null);
-  const [loadingReport,     setLoadingReport]     = useState(false);
-  const [reportError,       setReportError]       = useState<string | null>(null);
+  const [sessionReport, setSessionReport] = useState<SessionReportData | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
 
-  // — Fetch on mount —
   useEffect(() => { void fetchInitialData(); }, []);
 
   async function fetchInitialData() {
@@ -330,8 +310,6 @@ function SessionsTab() {
 
   async function openSession(id: number) {
     setLoadingDetail(true);
-    setAuthError(null);
-    setAddError(null);
     try {
       const { data } = await api.get<ExamSession>(`/sessions/${id}`);
       setSelectedSession(data);
@@ -349,7 +327,6 @@ function SessionsTab() {
 
   async function handleCreateSession(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setCreateError(null);
     setCreating(true);
     try {
       await api.post('/sessions', {
@@ -360,8 +337,9 @@ function SessionsTab() {
       setCreateProfileId(''); setCreateLocation(''); setCreateScheduledTime('');
       const { data } = await api.get<ExamSession[]>('/sessions');
       setSessions(data);
+      toast.success('Session created.');
     } catch (err) {
-      setCreateError(axiosMsg(err, 'Failed to create session.'));
+      toast.error(axiosMsg(err, 'Failed to create session.'));
     } finally {
       setCreating(false);
     }
@@ -370,7 +348,6 @@ function SessionsTab() {
   async function handleAddCandidate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!selectedSession) return;
-    setAddError(null);
     setAdding(true);
     try {
       await api.post(`/sessions/${selectedSession.id}/candidates`, {
@@ -379,8 +356,9 @@ function SessionsTab() {
       });
       setAddCandId(''); setAddCandNumber('');
       await refreshDetail();
+      toast.success('Candidate added.');
     } catch (err) {
-      setAddError(axiosMsg(err, 'Failed to add candidate.'));
+      toast.error(axiosMsg(err, 'Failed to add candidate.'));
     } finally {
       setAdding(false);
     }
@@ -388,37 +366,31 @@ function SessionsTab() {
 
   async function handleAuthorize(candidateId: number) {
     if (!selectedSession) return;
-    setAuthError(null);
     setAuthorizingId(candidateId);
     try {
       await api.post(`/sessions/${selectedSession.id}/candidates/${candidateId}/authorize`);
       await refreshDetail();
+      toast.success('Candidate authorized.');
     } catch (err) {
-      setAuthError(axiosMsg(err, 'Authorization failed.'));
+      toast.error(axiosMsg(err, 'Authorization failed.'));
     } finally {
       setAuthorizingId(null);
     }
   }
 
   async function handleViewReport(sessionId: number) {
-    setReportError(null);
     setLoadingReport(true);
     try {
       const { data } = await api.get<SessionReportData>(`/reports/sessions/${sessionId}`);
       setSessionReport(data);
     } catch (err) {
-      setReportError(axiosMsg(err, 'Failed to load session report.'));
+      toast.error(axiosMsg(err, 'Failed to load session report.'));
     } finally {
       setLoadingReport(false);
     }
   }
 
-  // — Loading skeleton —
-  if (loadingData) return (
-    <div className="flex items-center justify-center h-64">
-      <p className="text-gray-400 text-sm animate-pulse">Loading sessions…</p>
-    </div>
-  );
+  if (loadingData) return <SkeletonTable rows={5} cols={5} />;
 
   // ── Session report view ──────────────────────────────────────────────────────
   if (selectedSession && sessionReport) {
@@ -435,11 +407,11 @@ function SessionsTab() {
     const { examProfile: ep } = selectedSession;
     const isPastSession = new Date(selectedSession.scheduledTime) < new Date();
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 animate-fade-in">
         {/* Back + report button */}
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <button type="button" onClick={() => { setSelectedSession(null); setSessionReport(null); setReportError(null); }}
-            className="text-sm font-medium text-blue-600 hover:text-blue-800">
+          <button type="button" onClick={() => { setSelectedSession(null); setSessionReport(null); }}
+            className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors">
             ← Back to Sessions
           </button>
           {isPastSession && (
@@ -453,11 +425,6 @@ function SessionsTab() {
             </button>
           )}
         </div>
-        {reportError && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
-            <p className="text-sm text-red-600">{reportError}</p>
-          </div>
-        )}
 
         {/* Session meta */}
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-6">
@@ -487,11 +454,6 @@ function SessionsTab() {
         {/* Add candidate */}
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-6">
           <h3 className="text-base font-semibold text-gray-800 mb-4">Add Candidate</h3>
-          {addError && (
-            <div className="mb-3 rounded-lg bg-red-50 border border-red-200 px-4 py-2">
-              <p className="text-sm text-red-600">{addError}</p>
-            </div>
-          )}
           <form onSubmit={handleAddCandidate} noValidate className="flex flex-wrap gap-3 items-end">
             <div className="flex-1 min-w-48">
               <label className="block text-xs font-medium text-gray-600 mb-1">Candidate</label>
@@ -523,7 +485,6 @@ function SessionsTab() {
               Registered Candidates
               <span className="ml-2 text-sm font-normal text-gray-400">({selectedSession.candidates.length})</span>
             </h3>
-            {authError && <p className="text-xs text-red-600">{authError}</p>}
           </div>
           {selectedSession.candidates.length === 0 ? (
             <div className="py-12 text-center"><p className="text-gray-400 text-sm">No candidates registered yet.</p></div>
@@ -585,13 +546,17 @@ function SessionsTab() {
       {/* Sessions table */}
       <div className="flex-1 min-w-0 space-y-3">
         {loadingDetail && (
-          <p className="text-gray-400 text-sm animate-pulse">Loading session details…</p>
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-48" />
+            <SkeletonTable rows={1} cols={5} />
+          </div>
         )}
-        {sessions.length === 0 ? (
+        {!loadingDetail && sessions.length === 0 && (
           <div className="rounded-xl border border-dashed border-gray-300 bg-white py-16 text-center">
             <p className="text-gray-400 text-sm">No sessions yet. Create the first one →</p>
           </div>
-        ) : (
+        )}
+        {!loadingDetail && sessions.length > 0 && (
           <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
@@ -632,11 +597,6 @@ function SessionsTab() {
       {/* Create session form */}
       <div className="w-80 shrink-0 rounded-xl border border-gray-200 bg-white shadow-sm p-6 space-y-4">
         <h2 className="text-base font-semibold text-gray-800">Create New Session</h2>
-        {createError && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
-            <p className="text-sm text-red-600">{createError}</p>
-          </div>
-        )}
         <form onSubmit={handleCreateSession} noValidate className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Exam Profile</label>
@@ -677,23 +637,15 @@ function SessionsTab() {
 // ══════════════════════════════════════════════════════════════════════════════
 
 function ProjectAssessmentTab() {
-  const [sessions,       setSessions]       = useState<ExamSession[]>([]);
-  const [loadingInit,    setLoadingInit]    = useState(true);
-
-  const [sessionId,      setSessionId]      = useState('');
-  const [attempts,       setAttempts]       = useState<GradeAttempt[]>([]);
-  const [loadingAttempts,setLoadingAttempts]= useState(false);
-  const [attemptsError,  setAttemptsError]  = useState('');
-
-  // Which candidate card is expanded
-  const [expandedId,  setExpandedId]  = useState<number | null>(null);
-
-  // marks: attemptProjectId → mistakeId[]
-  const [marksMap,    setMarksMap]    = useState<Record<number, number[]>>({});
-
-  // sync status: attemptProjectId → SyncState
-  const [syncState,   setSyncState]   = useState<Record<number, SyncState>>({});
-  const [syncErrors,  setSyncErrors]  = useState<Record<number, string>>({});
+  const [sessions,        setSessions]        = useState<ExamSession[]>([]);
+  const [loadingInit,     setLoadingInit]     = useState(true);
+  const [sessionId,       setSessionId]       = useState('');
+  const [attempts,        setAttempts]        = useState<GradeAttempt[]>([]);
+  const [loadingAttempts, setLoadingAttempts] = useState(false);
+  const [expandedId,      setExpandedId]      = useState<number | null>(null);
+  const [marksMap,        setMarksMap]        = useState<Record<number, number[]>>({});
+  const [syncState,       setSyncState]       = useState<Record<number, SyncState>>({});
+  const [syncErrors,      setSyncErrors]      = useState<Record<number, string>>({});
 
   useEffect(() => {
     async function init() {
@@ -710,7 +662,6 @@ function ProjectAssessmentTab() {
   async function loadAttempts() {
     if (!sessionId) return;
     setLoadingAttempts(true);
-    setAttemptsError('');
     setAttempts([]);
     setExpandedId(null);
     setMarksMap({});
@@ -719,7 +670,6 @@ function ProjectAssessmentTab() {
     try {
       const { data } = await api.get<GradeAttempt[]>(`/exams/sessions/${sessionId}/project-grading`);
       setAttempts(data);
-      // Pre-populate marks from existing database state
       const init: Record<number, number[]> = {};
       for (const a of data) {
         for (const p of a.projects) {
@@ -728,7 +678,7 @@ function ProjectAssessmentTab() {
       }
       setMarksMap(init);
     } catch (err) {
-      setAttemptsError(axiosMsg(err, 'Failed to load grading list.'));
+      toast.error(axiosMsg(err, 'Failed to load grading list.'));
     } finally {
       setLoadingAttempts(false);
     }
@@ -740,8 +690,8 @@ function ProjectAssessmentTab() {
     projectId:        number,
     mistakeId:        number
   ) {
-    const previous  = marksMap[attemptProjectId] ?? [];
-    const current   = new Set(previous);
+    const previous = marksMap[attemptProjectId] ?? [];
+    const current  = new Set(previous);
     if (current.has(mistakeId)) {
       current.delete(mistakeId);
     } else {
@@ -749,7 +699,6 @@ function ProjectAssessmentTab() {
     }
     const newIds = [...current];
 
-    // Optimistic update
     setMarksMap(m => ({ ...m, [attemptProjectId]: newIds }));
     setSyncState(s => ({ ...s, [attemptProjectId]: 'syncing' }));
     setSyncErrors(e => ({ ...e, [attemptProjectId]: '' }));
@@ -762,20 +711,14 @@ function ProjectAssessmentTab() {
         2000
       );
     } catch (err) {
-      // Rollback
       setMarksMap(m => ({ ...m, [attemptProjectId]: previous }));
       setSyncState(s => ({ ...s, [attemptProjectId]: 'error' }));
       setSyncErrors(e => ({ ...e, [attemptProjectId]: axiosMsg(err, 'Sync failed.') }));
+      toast.error(axiosMsg(err, 'Failed to sync marks.'));
     }
   }
 
-  if (loadingInit) {
-    return (
-      <div className="flex items-center justify-center h-48">
-        <p className="text-gray-400 text-sm animate-pulse">Loading sessions…</p>
-      </div>
-    );
-  }
+  if (loadingInit) return <SkeletonTable rows={4} cols={3} />;
 
   return (
     <div className="space-y-5">
@@ -819,11 +762,7 @@ function ProjectAssessmentTab() {
         )}
       </div>
 
-      {attemptsError && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
-          <p className="text-sm text-red-600">{attemptsError}</p>
-        </div>
-      )}
+      {loadingAttempts && <SkeletonTable rows={3} cols={3} />}
 
       {/* No results */}
       {!loadingAttempts && sessionId && attempts.length === 0 && (
@@ -872,18 +811,18 @@ function ProjectAssessmentTab() {
 
             {/* Expanded grading panel */}
             {isExpanded && (
-              <div className="border-t border-gray-100 px-5 py-5 space-y-6 bg-gray-50/50">
+              <div className="border-t border-gray-100 px-5 py-5 space-y-6 bg-gray-50/50 animate-fade-in">
                 {attempt.projects.map((project) => {
-                  const marked      = new Set(marksMap[project.attemptProjectId] ?? []);
+                  const marked       = new Set(marksMap[project.attemptProjectId] ?? []);
                   const totalPenalty = [...marked]
                     .reduce((sum, id) => {
                       const m = project.allMistakes.find(m => m.id === id);
                       return sum + (m?.penaltyPoints ?? 0);
                     }, 0);
-                  const maxPenalty   = project.allMistakes.reduce((s, m) => s + m.penaltyPoints, 0);
-                  const projScore    = Math.max(0, 100 - totalPenalty);
-                  const sync         = syncState[project.attemptProjectId] ?? 'idle';
-                  const syncErr      = syncErrors[project.attemptProjectId] ?? '';
+                  const maxPenalty = project.allMistakes.reduce((s, m) => s + m.penaltyPoints, 0);
+                  const projScore  = Math.max(0, 100 - totalPenalty);
+                  const sync       = syncState[project.attemptProjectId] ?? 'idle';
+                  const syncErr    = syncErrors[project.attemptProjectId] ?? '';
 
                   return (
                     <div
@@ -904,7 +843,7 @@ function ProjectAssessmentTab() {
                               href={`http://localhost:3000${project.fileUrl}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 mt-2 text-xs font-medium text-blue-600 hover:text-blue-800"
+                              className="inline-flex items-center gap-1 mt-2 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
                             >
                               View Project PDF ↗
                             </a>
@@ -1054,9 +993,11 @@ export default function ExaminerDashboard() {
         </div>
       </div>
 
-      {activeTab === 'questions' && <QuestionBank />}
-      {activeTab === 'sessions'  && <SessionsTab />}
-      {activeTab === 'grading'   && <ProjectAssessmentTab />}
+      <div key={activeTab} className="animate-fade-in">
+        {activeTab === 'questions' && <QuestionBank />}
+        {activeTab === 'sessions'  && <SessionsTab />}
+        {activeTab === 'grading'   && <ProjectAssessmentTab />}
+      </div>
     </div>
   );
 }

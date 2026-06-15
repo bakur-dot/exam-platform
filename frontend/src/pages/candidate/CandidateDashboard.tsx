@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
+import { toast } from 'sonner';
 import api from '../../services/api';
 import { axiosMsg } from '../../utils/axiosMsg';
 import { downloadBlob } from '../../utils/downloadBlob';
+import { Skeleton, SkeletonTable } from '../../components/ui/Skeleton';
 import AttemptDetails from '../../components/reports/AttemptDetails';
 import type { AttemptDetailsData } from '../../components/reports/AttemptDetails';
 
@@ -241,50 +243,47 @@ function DocCard({ docType, doc, onUpload, uploading }: DocCardProps) {
 
 export default function CandidateDashboard() {
   // View
-  const [viewKind, setViewKind]   = useState<ViewKind>('loading');
-  const [dashTab, setDashTab]     = useState<'documents' | 'exams' | 'history'>('documents');
+  const [viewKind, setViewKind] = useState<ViewKind>('loading');
+  const [dashTab, setDashTab]   = useState<'documents' | 'exams' | 'history'>('documents');
 
   // Dashboard data
-  const [documents, setDocuments]   = useState<CandidateDocument[]>([]);
-  const [eligible, setEligible]     = useState(false);
-  const [sessions, setSessions]     = useState<SessionSeat[]>([]);
+  const [documents, setDocuments] = useState<CandidateDocument[]>([]);
+  const [eligible, setEligible]   = useState(false);
+  const [sessions, setSessions]   = useState<SessionSeat[]>([]);
 
   // Exam engine state
-  const [attempt, setAttempt]           = useState<AttemptMeta | null>(null);
-  const [exam, setExam]                 = useState<ExamMeta | null>(null);
-  const [questions, setQuestions]       = useState<Question[]>([]);
-  const [projects, setProjects]         = useState<Project[]>([]);
-  const [answers, setAnswers]           = useState<SavedAnswers>({});
+  const [attempt,       setAttempt]       = useState<AttemptMeta | null>(null);
+  const [exam,          setExam]          = useState<ExamMeta | null>(null);
+  const [questions,     setQuestions]     = useState<Question[]>([]);
+  const [projects,      setProjects]      = useState<Project[]>([]);
+  const [answers,       setAnswers]       = useState<SavedAnswers>({});
   const [markedMistakes, setMarkedMistakes] = useState<MarkedMistakes>({});
-  const [navIdx, setNavIdx]             = useState(0);
-  const [timeLeft, setTimeLeft]         = useState(0);
-  const [savingKey, setSavingKey]       = useState<string | null>(null);
-  const [submitting, setSubmitting]     = useState(false);
+  const [navIdx,        setNavIdx]        = useState(0);
+  const [timeLeft,      setTimeLeft]      = useState(0);
+  const [savingKey,     setSavingKey]     = useState<string | null>(null);
+  const [submitting,    setSubmitting]    = useState(false);
 
   // Result
   const [result, setResult] = useState<ExamResult | null>(null);
 
   // History tab state
-  const [historyItems, setHistoryItems]       = useState<HistoryItem[]>([]);
-  const [historyLoaded, setHistoryLoaded]     = useState(false);
-  const [historyLoading, setHistoryLoading]   = useState(false);
+  const [historyItems,    setHistoryItems]    = useState<HistoryItem[]>([]);
+  const [historyLoaded,   setHistoryLoaded]   = useState(false);
+  const [historyLoading,  setHistoryLoading]  = useState(false);
   const [selectedDetails, setSelectedDetails] = useState<AttemptDetailsData | null>(null);
-  const [loadingDetails, setLoadingDetails]   = useState(false);
-  const [downloadingKey, setDownloadingKey]   = useState<string | null>(null);
-  const [historyError, setHistoryError]       = useState('');
+  const [loadingDetails,  setLoadingDetails]  = useState(false);
+  const [downloadingKey,  setDownloadingKey]  = useState<string | null>(null);
 
   // Appeals state
-  const [appeals, setAppeals]               = useState<Record<number, CandidateAppeal>>({});
+  const [appeals,         setAppeals]         = useState<Record<number, CandidateAppeal>>({});
   const [appealAttemptId, setAppealAttemptId] = useState<number | null>(null);
-  const [appealFile, setAppealFile]         = useState<File | null>(null);
+  const [appealFile,      setAppealFile]      = useState<File | null>(null);
   const [submittingAppeal, setSubmittingAppeal] = useState(false);
-  const [appealError, setAppealError]       = useState('');
 
   // UI feedback
-  const [error, setError]               = useState('');
   const [uploadingType, setUploadingType] = useState<DocType | null>(null);
-  const [signingId, setSigningId]       = useState<number | null>(null);
-  const [startingId, setStartingId]     = useState<number | null>(null);
+  const [signingId,     setSigningId]     = useState<number | null>(null);
+  const [startingId,    setStartingId]    = useState<number | null>(null);
 
   const autoSubmittedRef = useRef(false);
 
@@ -317,7 +316,7 @@ export default function CandidateDashboard() {
         autoSubmittedRef.current = true;
         api.post<ExamResult>(`/exams/${attemptId}/finish`)
           .then(({ data }) => { setResult(data); setViewKind('result'); })
-          .catch((err: unknown) => setError(axiosMsg(err, 'Auto-submit failed.')));
+          .catch((err: unknown) => toast.error(axiosMsg(err, 'Auto-submit failed.')));
       }
     };
 
@@ -338,6 +337,8 @@ export default function CandidateDashboard() {
       setDocuments(docsRes.data);
       setEligible(eligRes.data.eligible);
       setSessions(sessionsRes.data);
+    } catch (err) {
+      toast.error(axiosMsg(err, 'Failed to load dashboard data.'));
     } finally {
       setViewKind('dashboard');
     }
@@ -372,7 +373,6 @@ export default function CandidateDashboard() {
     setQuestions(data.questions);
     setProjects(data.projects ?? []);
     setAnswers(data.savedAnswers ?? {});
-    // Restore marked mistakes from savedMistakeIds (for page-refresh recovery)
     const restored: MarkedMistakes = {};
     for (const p of data.projects ?? []) {
       restored[p.id] = p.savedMistakeIds ?? [];
@@ -380,14 +380,12 @@ export default function CandidateDashboard() {
     setMarkedMistakes(restored);
     setNavIdx(0);
     setSubmitting(false);
-    setError('');
     setViewKind('exam');
   }
 
   // ── Actions: documents ────────────────────────────────────────────────────
 
   async function handleUpload(docType: DocType, file: File) {
-    setError('');
     setUploadingType(docType);
     try {
       const form = new FormData();
@@ -395,8 +393,9 @@ export default function CandidateDashboard() {
       form.append('document', file);
       await api.post('/candidates/documents', form);
       await fetchDocs();
+      toast.success('Document uploaded successfully.');
     } catch (err) {
-      setError(axiosMsg(err, 'Upload failed. Please try again.'));
+      toast.error(axiosMsg(err, 'Upload failed. Please try again.'));
     } finally {
       setUploadingType(null);
     }
@@ -407,7 +406,6 @@ export default function CandidateDashboard() {
   async function loadHistory() {
     if (historyLoaded) return;
     setHistoryLoading(true);
-    setHistoryError('');
     try {
       const [histRes, appsRes] = await Promise.all([
         api.get<HistoryItem[]>('/reports/history'),
@@ -419,7 +417,7 @@ export default function CandidateDashboard() {
       setAppeals(map);
       setHistoryLoaded(true);
     } catch (err) {
-      setHistoryError(axiosMsg(err, 'Failed to load exam history.'));
+      toast.error(axiosMsg(err, 'Failed to load exam history.'));
     } finally {
       setHistoryLoading(false);
     }
@@ -427,12 +425,11 @@ export default function CandidateDashboard() {
 
   async function handleViewDetails(attemptId: number) {
     setLoadingDetails(true);
-    setHistoryError('');
     try {
       const { data } = await api.get<AttemptDetailsData>(`/reports/attempts/${attemptId}`);
       setSelectedDetails(data);
     } catch (err) {
-      setHistoryError(axiosMsg(err, 'Failed to load attempt details.'));
+      toast.error(axiosMsg(err, 'Failed to load attempt details.'));
     } finally {
       setLoadingDetails(false);
     }
@@ -441,7 +438,6 @@ export default function CandidateDashboard() {
   async function handleDownloadReport(attemptId: number, fmt: 'pdf' | 'excel') {
     const key = `${attemptId}-${fmt}`;
     setDownloadingKey(key);
-    setHistoryError('');
     try {
       const ext  = fmt === 'pdf' ? 'pdf' : 'xlsx';
       const mime = fmt === 'pdf'
@@ -452,7 +448,7 @@ export default function CandidateDashboard() {
       });
       downloadBlob(new Blob([res.data as BlobPart], { type: mime }), `attempt-${attemptId}.${ext}`);
     } catch (err) {
-      setHistoryError(axiosMsg(err, `Failed to download ${fmt.toUpperCase()}.`));
+      toast.error(axiosMsg(err, `Failed to download ${fmt.toUpperCase()}.`));
     } finally {
       setDownloadingKey(null);
     }
@@ -464,7 +460,6 @@ export default function CandidateDashboard() {
     e.preventDefault();
     if (!appealAttemptId || !appealFile) return;
     setSubmittingAppeal(true);
-    setAppealError('');
     try {
       const form = new FormData();
       form.append('attemptId', String(appealAttemptId));
@@ -473,8 +468,9 @@ export default function CandidateDashboard() {
       setAppeals(prev => ({ ...prev, [appealAttemptId]: data }));
       setAppealAttemptId(null);
       setAppealFile(null);
+      toast.success('Appeal submitted successfully.');
     } catch (err) {
-      setAppealError(axiosMsg(err, 'Failed to submit appeal.'));
+      toast.error(axiosMsg(err, 'Failed to submit appeal.'));
     } finally {
       setSubmittingAppeal(false);
     }
@@ -484,12 +480,12 @@ export default function CandidateDashboard() {
 
   async function handleSignProtocol(seat: SessionSeat) {
     setSigningId(seat.sessionId);
-    setError('');
     try {
       await api.post(`/sessions/${seat.sessionId}/candidates/${seat.candidateId}/sign`);
       await reloadSessions();
+      toast.success('Protocol signed.');
     } catch (err) {
-      setError(axiosMsg(err, 'Failed to sign protocol.'));
+      toast.error(axiosMsg(err, 'Failed to sign protocol.'));
     } finally {
       setSigningId(null);
     }
@@ -497,7 +493,6 @@ export default function CandidateDashboard() {
 
   async function handleStartExam(seat: SessionSeat) {
     setStartingId(seat.id);
-    setError('');
     try {
       const { data } = await api.post('/exams/generate', {
         profileId: seat.session.examProfile.id,
@@ -505,7 +500,7 @@ export default function CandidateDashboard() {
       });
       enterExam({ ...data, savedAnswers: {} });
     } catch (err) {
-      setError(axiosMsg(err, 'Failed to start exam.'));
+      toast.error(axiosMsg(err, 'Failed to start exam.'));
       setStartingId(null);
     }
   }
@@ -522,7 +517,7 @@ export default function CandidateDashboard() {
         selectedAnswerId: answerId,
       });
     } catch (err) {
-      setError(axiosMsg(err, 'Failed to save answer.'));
+      toast.error(axiosMsg(err, 'Failed to save answer.'));
     } finally {
       setSavingKey(null);
     }
@@ -545,7 +540,7 @@ export default function CandidateDashboard() {
         mistakeIds,
       });
     } catch (err) {
-      setError(axiosMsg(err, 'Failed to save project evaluation.'));
+      toast.error(axiosMsg(err, 'Failed to save project evaluation.'));
     } finally {
       setSavingKey(null);
     }
@@ -555,13 +550,13 @@ export default function CandidateDashboard() {
     if (!attempt) return;
     if (!confirm('Submit the exam? This cannot be undone.')) return;
     setSubmitting(true);
-    setError('');
     try {
       const { data } = await api.post<ExamResult>(`/exams/${attempt.id}/finish`);
+      toast.success('Exam submitted successfully.');
       setResult(data);
       setViewKind('result');
     } catch (err) {
-      setError(axiosMsg(err, 'Failed to submit exam.'));
+      toast.error(axiosMsg(err, 'Failed to submit exam.'));
       setSubmitting(false);
     }
   }
@@ -577,8 +572,12 @@ export default function CandidateDashboard() {
 
   if (viewKind === 'loading') {
     return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-gray-400 text-sm animate-pulse">Loading…</p>
+      <div className="max-w-4xl mx-auto space-y-6">
+        <Skeleton className="h-8 w-56" />
+        <div className="flex gap-4">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-8 w-24" />)}
+        </div>
+        <SkeletonTable rows={4} cols={4} />
       </div>
     );
   }
@@ -586,10 +585,10 @@ export default function CandidateDashboard() {
   // ── Result screen ─────────────────────────────────────────────────────────
 
   if (viewKind === 'result' && result) {
-    const passed    = result.passed;
-    const timedOut  = result.status === 'TIMED_OUT';
+    const passed   = result.passed;
+    const timedOut = result.status === 'TIMED_OUT';
     return (
-      <div className="max-w-lg mx-auto mt-12 space-y-6">
+      <div className="max-w-lg mx-auto mt-12 space-y-6 animate-fade-in">
         <div className={`rounded-2xl border-2 p-8 text-center shadow-md ${passed ? 'border-green-400 bg-green-50' : 'border-red-300 bg-red-50'}`}>
           <p className="text-5xl mb-3">{passed ? '✓' : '✗'}</p>
           <h1 className={`text-2xl font-bold ${passed ? 'text-green-700' : 'text-red-700'}`}>
@@ -639,10 +638,10 @@ export default function CandidateDashboard() {
   // ── Active exam engine ────────────────────────────────────────────────────
 
   if (viewKind === 'exam' && attempt && exam) {
-    const totalItems  = questions.length + projects.length;
-    const isQuestion  = navIdx < questions.length;
-    const currentQ    = isQuestion ? questions[navIdx] : null;
-    const currentP    = !isQuestion ? projects[navIdx - questions.length] : null;
+    const totalItems = questions.length + projects.length;
+    const isQuestion = navIdx < questions.length;
+    const currentQ   = isQuestion ? questions[navIdx] : null;
+    const currentP   = !isQuestion ? projects[navIdx - questions.length] : null;
 
     const timerColor =
       timeLeft > 300 ? 'text-gray-800' :
@@ -677,17 +676,12 @@ export default function CandidateDashboard() {
         <div className="flex flex-1 gap-0">
           {/* Question navigator */}
           <div className="w-48 shrink-0 bg-white border-r border-gray-200 p-4 overflow-y-auto">
-            {error && (
-              <p className="mb-3 rounded bg-red-50 px-2 py-1.5 text-xs text-red-600 border border-red-200">
-                {error}
-              </p>
-            )}
             <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
               Questions
             </p>
             <div className="flex flex-wrap gap-1.5 mb-4">
               {questions.map((q, i) => {
-                const answered = answers[q.id] !== undefined && answers[q.id] !== null;
+                const answered  = answers[q.id] !== undefined && answers[q.id] !== null;
                 const isCurrent = navIdx === i;
                 return (
                   <button
@@ -714,7 +708,7 @@ export default function CandidateDashboard() {
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {projects.map((p, i) => {
-                    const idx = questions.length + i;
+                    const idx       = questions.length + i;
                     const isCurrent = navIdx === idx;
                     return (
                       <button
@@ -878,17 +872,12 @@ export default function CandidateDashboard() {
     {/* Appeal submission modal */}
     {appealAttemptId !== null && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-        <div className="bg-white rounded-xl shadow-xl w-full max-w-md space-y-4 p-6">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-md space-y-4 p-6 animate-modal-in">
           <h2 className="text-lg font-semibold text-gray-800">Submit Appeal</h2>
           <p className="text-sm text-gray-500">
             Upload a supporting document (PDF, JPEG, or PNG — max 10 MB).
             You can only appeal once per attempt.
           </p>
-          {appealError && (
-            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
-              <p className="text-sm text-red-600">{appealError}</p>
-            </div>
-          )}
           <form onSubmit={handleSubmitAppeal} className="space-y-4">
             <input
               type="file"
@@ -900,7 +889,7 @@ export default function CandidateDashboard() {
             <div className="flex items-center gap-3 justify-end">
               <button
                 type="button"
-                onClick={() => { setAppealAttemptId(null); setAppealFile(null); setAppealError(''); }}
+                onClick={() => { setAppealAttemptId(null); setAppealFile(null); }}
                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
               >
                 Cancel
@@ -917,19 +906,13 @@ export default function CandidateDashboard() {
         </div>
       </div>
     )}
+
     <div className="max-w-4xl mx-auto space-y-6">
 
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-semibold text-gray-800">Candidate Dashboard</h1>
       </div>
-
-      {/* Global error */}
-      {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
-          <p className="text-sm text-red-600">{error}</p>
-        </div>
-      )}
 
       {/* Tabs */}
       <div className="border-b border-gray-200 flex gap-1">
@@ -938,7 +921,6 @@ export default function CandidateDashboard() {
             key={tab}
             onClick={() => {
               setDashTab(tab);
-              setError('');
               if (tab === 'history') void loadHistory();
             }}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
@@ -952,282 +934,277 @@ export default function CandidateDashboard() {
         ))}
       </div>
 
-      {/* Documents tab */}
-      {dashTab === 'documents' && (
-        <div className="space-y-6">
-          {/* Eligibility banner */}
-          {eligible ? (
-            <div className="flex items-center gap-3 rounded-xl bg-green-50 border border-green-200 px-5 py-4">
-              <span className="text-green-500 text-xl">✓</span>
-              <div>
-                <p className="font-semibold text-green-700">Eligible for Examination</p>
-                <p className="text-sm text-green-600">All required documents have been approved.</p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 rounded-xl bg-yellow-50 border border-yellow-200 px-5 py-4">
-              <span className="text-yellow-500 text-xl">⚠</span>
-              <div>
-                <p className="font-semibold text-yellow-700">Pending Documents / Under Review</p>
-                <p className="text-sm text-yellow-600">
-                  Submit and get all four documents approved to qualify.
-                </p>
-              </div>
-            </div>
-          )}
+      {/* Tab content with fade-in on switch */}
+      <div key={dashTab} className="animate-fade-in">
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {DOC_TYPES.map((docType) => (
-              <DocCard
-                key={docType}
-                docType={docType}
-                doc={docMap.get(docType)}
-                onUpload={handleUpload}
-                uploading={uploadingType === docType}
-              />
-            ))}
+        {/* Documents tab */}
+        {dashTab === 'documents' && (
+          <div className="space-y-6">
+            {/* Eligibility banner */}
+            {eligible ? (
+              <div className="flex items-center gap-3 rounded-xl bg-green-50 border border-green-200 px-5 py-4">
+                <span className="text-green-500 text-xl">✓</span>
+                <div>
+                  <p className="font-semibold text-green-700">Eligible for Examination</p>
+                  <p className="text-sm text-green-600">All required documents have been approved.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 rounded-xl bg-yellow-50 border border-yellow-200 px-5 py-4">
+                <span className="text-yellow-500 text-xl">⚠</span>
+                <div>
+                  <p className="font-semibold text-yellow-700">Pending Documents / Under Review</p>
+                  <p className="text-sm text-yellow-600">
+                    Submit and get all four documents approved to qualify.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {DOC_TYPES.map((docType) => (
+                <DocCard
+                  key={docType}
+                  docType={docType}
+                  doc={docMap.get(docType)}
+                  onUpload={handleUpload}
+                  uploading={uploadingType === docType}
+                />
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Exams tab */}
-      {dashTab === 'exams' && (
-        <div className="space-y-4">
-          {sessions.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-10 text-center">
-              <p className="text-gray-400 text-sm">You have not been registered in any exam session yet.</p>
-            </div>
-          ) : (
-            sessions.map((seat) => {
-              const profile = seat.session.examProfile;
-              const isSigning  = signingId === seat.sessionId;
-              const isStarting = startingId === seat.id;
+        {/* Exams tab */}
+        {dashTab === 'exams' && (
+          <div className="space-y-4">
+            {sessions.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-10 text-center">
+                <p className="text-gray-400 text-sm">You have not been registered in any exam session yet.</p>
+              </div>
+            ) : (
+              sessions.map((seat) => {
+                const profile    = seat.session.examProfile;
+                const isSigning  = signingId === seat.sessionId;
+                const isStarting = startingId === seat.id;
 
-              return (
-                <div
-                  key={seat.id}
-                  className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-4"
-                >
-                  {/* Session meta */}
-                  <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div>
-                      <h3 className="font-semibold text-gray-800">
-                        {profile.specialization.name}
-                        {profile.isExpert && (
-                          <span className="ml-2 text-xs bg-purple-100 text-purple-700 rounded-full px-2 py-0.5">
-                            Expert
-                          </span>
+                return (
+                  <div
+                    key={seat.id}
+                    className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-4"
+                  >
+                    {/* Session meta */}
+                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                      <div>
+                        <h3 className="font-semibold text-gray-800">
+                          {profile.specialization.name}
+                          {profile.isExpert && (
+                            <span className="ml-2 text-xs bg-purple-100 text-purple-700 rounded-full px-2 py-0.5">
+                              Expert
+                            </span>
+                          )}
+                        </h3>
+                        <p className="text-sm text-gray-500 mt-0.5">
+                          {fmtDate(seat.session.scheduledTime)} · {seat.session.location}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Examiner: {seat.session.examiner.name} · Candidate #: {seat.candidateNumber}
+                        </p>
+                      </div>
+                      <div className="text-right text-sm text-gray-500 space-y-0.5">
+                        <p>{profile.questionCount} questions · {profile.durationMinutes} min</p>
+                        <p>Passing: {profile.passingScore}%</p>
+                        {profile.requiresProjects && (
+                          <p className="text-xs text-purple-600">+ Project evaluation</p>
                         )}
-                      </h3>
-                      <p className="text-sm text-gray-500 mt-0.5">
-                        {fmtDate(seat.session.scheduledTime)} · {seat.session.location}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        Examiner: {seat.session.examiner.name} · Candidate #: {seat.candidateNumber}
-                      </p>
+                      </div>
                     </div>
-                    <div className="text-right text-sm text-gray-500 space-y-0.5">
-                      <p>{profile.questionCount} questions · {profile.durationMinutes} min</p>
-                      <p>Passing: {profile.passingScore}%</p>
-                      {profile.requiresProjects && (
-                        <p className="text-xs text-purple-600">+ Project evaluation</p>
+
+                    {/* Protocol + authorization status + CTA */}
+                    <div className="flex items-center gap-3 flex-wrap pt-1 border-t border-gray-100">
+                      {/* Step 1: sign protocol */}
+                      {!seat.isProtocolSigned ? (
+                        <>
+                          <span className="text-xs text-gray-400">Step 1: Sign the pre-exam protocol</span>
+                          <button
+                            onClick={() => void handleSignProtocol(seat)}
+                            disabled={isSigning}
+                            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                          >
+                            {isSigning ? 'Signing…' : 'Sign Protocol'}
+                          </button>
+                        </>
+                      ) : seat.startStatus !== 'AUTHORIZED' ? (
+                        /* Step 2: waiting for examiner */
+                        <>
+                          <span className="flex items-center gap-1.5 text-xs text-green-600">
+                            <span>✓ Protocol signed</span>
+                          </span>
+                          <span className="text-xs text-gray-400 mx-1">·</span>
+                          <span className="flex items-center gap-1.5 text-xs text-yellow-600">
+                            <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                            Waiting for examiner authorization…
+                          </span>
+                        </>
+                      ) : (
+                        /* Step 3: ready to start */
+                        <>
+                          <span className="text-xs text-green-600">✓ Protocol signed</span>
+                          <span className="text-xs text-gray-400 mx-1">·</span>
+                          <span className="text-xs text-green-600">✓ Authorized</span>
+                          <button
+                            onClick={() => void handleStartExam(seat)}
+                            disabled={isStarting}
+                            className="ml-auto rounded-lg bg-green-600 px-5 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+                          >
+                            {isStarting ? 'Starting…' : 'Start Exam →'}
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
+                );
+              })
+            )}
+          </div>
+        )}
 
-                  {/* Protocol + authorization status + CTA */}
-                  <div className="flex items-center gap-3 flex-wrap pt-1 border-t border-gray-100">
-                    {/* Step 1: sign protocol */}
-                    {!seat.isProtocolSigned ? (
-                      <>
-                        <span className="text-xs text-gray-400">Step 1: Sign the pre-exam protocol</span>
-                        <button
-                          onClick={() => void handleSignProtocol(seat)}
-                          disabled={isSigning}
-                          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                        >
-                          {isSigning ? 'Signing…' : 'Sign Protocol'}
-                        </button>
-                      </>
-                    ) : seat.startStatus !== 'AUTHORIZED' ? (
-                      /* Step 2: waiting for examiner */
-                      <>
-                        <span className="flex items-center gap-1.5 text-xs text-green-600">
-                          <span>✓ Protocol signed</span>
-                        </span>
-                        <span className="text-xs text-gray-400 mx-1">·</span>
-                        <span className="flex items-center gap-1.5 text-xs text-yellow-600">
-                          <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-                          Waiting for examiner authorization…
-                        </span>
-                      </>
-                    ) : (
-                      /* Step 3: ready to start */
-                      <>
-                        <span className="text-xs text-green-600">✓ Protocol signed</span>
-                        <span className="text-xs text-gray-400 mx-1">·</span>
-                        <span className="text-xs text-green-600">✓ Authorized</span>
-                        <button
-                          onClick={() => void handleStartExam(seat)}
-                          disabled={isStarting}
-                          className="ml-auto rounded-lg bg-green-600 px-5 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
-                        >
-                          {isStarting ? 'Starting…' : 'Start Exam →'}
-                        </button>
-                      </>
-                    )}
+        {/* History tab */}
+        {dashTab === 'history' && (
+          <div className="space-y-4">
+            {historyLoading && <SkeletonTable rows={5} cols={7} />}
+
+            {/* Attempt details panel */}
+            {selectedDetails && (
+              <AttemptDetails
+                data={selectedDetails}
+                onClose={() => setSelectedDetails(null)}
+                showDownloads
+              />
+            )}
+
+            {/* History table */}
+            {!selectedDetails && !historyLoading && historyLoaded && (
+              <>
+                {historyItems.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-10 text-center">
+                    <p className="text-gray-400 text-sm">No completed exams yet.</p>
                   </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
-
-      {/* History tab */}
-      {dashTab === 'history' && (
-        <div className="space-y-4">
-          {historyLoading && (
-            <div className="flex items-center justify-center h-32">
-              <p className="text-gray-400 text-sm animate-pulse">Loading history…</p>
-            </div>
-          )}
-
-          {historyError && (
-            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
-              <p className="text-sm text-red-600">{historyError}</p>
-            </div>
-          )}
-
-          {/* Attempt details panel */}
-          {selectedDetails && (
-            <AttemptDetails
-              data={selectedDetails}
-              onClose={() => setSelectedDetails(null)}
-              showDownloads
-            />
-          )}
-
-          {/* History table */}
-          {!selectedDetails && !historyLoading && historyLoaded && (
-            <>
-              {historyItems.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-10 text-center">
-                  <p className="text-gray-400 text-sm">No completed exams yet.</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-                  <table className="min-w-full divide-y divide-gray-200 text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        {['Date', 'Specialization', 'Status', 'Score', 'Result', 'Actions', 'Appeal'].map((h) => (
-                          <th key={h} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {historyItems.map((item) => {
-                        const busy    = loadingDetails;
-                        const isPdf   = downloadingKey === `${item.id}-pdf`;
-                        const isExcel = downloadingKey === `${item.id}-excel`;
-                        const appeal  = appeals[item.id];
-                        return (
-                          <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-5 py-4 whitespace-nowrap text-gray-600 text-xs">
-                              {new Date(item.startTime).toLocaleDateString(undefined, { dateStyle: 'medium' })}
-                            </td>
-                            <td className="px-5 py-4 whitespace-nowrap">
-                              <p className="font-medium text-gray-800">{item.examProfile.specializationName}</p>
-                              {item.examProfile.isExpert && (
-                                <span className="text-xs text-purple-600">Expert</span>
-                              )}
-                            </td>
-                            <td className="px-5 py-4 whitespace-nowrap">
-                              <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                                item.status === 'SUBMITTED' ? 'bg-blue-100 text-blue-700' :
-                                item.status === 'TIMED_OUT' ? 'bg-red-100 text-red-600'  :
-                                                              'bg-yellow-100 text-yellow-700'
-                              }`}>
-                                {item.status}
-                              </span>
-                            </td>
-                            <td className="px-5 py-4 whitespace-nowrap tabular-nums text-gray-700">
-                              {item.finalScore !== null ? `${item.finalScore.toFixed(1)}%` : '—'}
-                            </td>
-                            <td className="px-5 py-4 whitespace-nowrap">
-                              {item.passed === true  && <span className="text-xs font-bold text-green-700">PASSED</span>}
-                              {item.passed === false && <span className="text-xs font-bold text-red-600">FAILED</span>}
-                              {item.passed === null  && <span className="text-xs text-gray-400">—</span>}
-                            </td>
-                            <td className="px-5 py-4 whitespace-nowrap">
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  onClick={() => void handleViewDetails(item.id)}
-                                  disabled={busy}
-                                  className="rounded-lg bg-gray-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 disabled:opacity-50 transition-colors"
-                                >
-                                  {busy ? '…' : 'Details'}
-                                </button>
-                                <button
-                                  onClick={() => void handleDownloadReport(item.id, 'pdf')}
-                                  disabled={downloadingKey !== null}
-                                  className="rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
-                                >
-                                  {isPdf ? '…' : 'PDF'}
-                                </button>
-                                <button
-                                  onClick={() => void handleDownloadReport(item.id, 'excel')}
-                                  disabled={downloadingKey !== null}
-                                  className="rounded-lg bg-emerald-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50 transition-colors"
-                                >
-                                  {isExcel ? '…' : 'Excel'}
-                                </button>
-                              </div>
-                            </td>
-                            {/* Appeal column */}
-                            <td className="px-5 py-4 whitespace-nowrap min-w-[120px]">
-                              {item.status === 'SUBMITTED' ? (
-                                !appeal ? (
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+                    <table className="min-w-full divide-y divide-gray-200 text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          {['Date', 'Specialization', 'Status', 'Score', 'Result', 'Actions', 'Appeal'].map((h) => (
+                            <th key={h} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {historyItems.map((item) => {
+                          const busy    = loadingDetails;
+                          const isPdf   = downloadingKey === `${item.id}-pdf`;
+                          const isExcel = downloadingKey === `${item.id}-excel`;
+                          const appeal  = appeals[item.id];
+                          return (
+                            <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                              <td className="px-5 py-4 whitespace-nowrap text-gray-600 text-xs">
+                                {new Date(item.startTime).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                              </td>
+                              <td className="px-5 py-4 whitespace-nowrap">
+                                <p className="font-medium text-gray-800">{item.examProfile.specializationName}</p>
+                                {item.examProfile.isExpert && (
+                                  <span className="text-xs text-purple-600">Expert</span>
+                                )}
+                              </td>
+                              <td className="px-5 py-4 whitespace-nowrap">
+                                <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                  item.status === 'SUBMITTED' ? 'bg-blue-100 text-blue-700' :
+                                  item.status === 'TIMED_OUT' ? 'bg-red-100 text-red-600'  :
+                                                                'bg-yellow-100 text-yellow-700'
+                                }`}>
+                                  {item.status}
+                                </span>
+                              </td>
+                              <td className="px-5 py-4 whitespace-nowrap tabular-nums text-gray-700">
+                                {item.finalScore !== null ? `${item.finalScore.toFixed(1)}%` : '—'}
+                              </td>
+                              <td className="px-5 py-4 whitespace-nowrap">
+                                {item.passed === true  && <span className="text-xs font-bold text-green-700">PASSED</span>}
+                                {item.passed === false && <span className="text-xs font-bold text-red-600">FAILED</span>}
+                                {item.passed === null  && <span className="text-xs text-gray-400">—</span>}
+                              </td>
+                              <td className="px-5 py-4 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
                                   <button
-                                    onClick={() => { setAppealAttemptId(item.id); setAppealError(''); }}
-                                    className="rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
+                                    onClick={() => void handleViewDetails(item.id)}
+                                    disabled={busy}
+                                    className="rounded-lg bg-gray-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 disabled:opacity-50 transition-colors"
                                   >
-                                    Appeal
+                                    {busy ? '…' : 'Details'}
                                   </button>
-                                ) : appeal.status === 'PENDING' ? (
-                                  <span className="inline-block rounded-full bg-yellow-100 text-yellow-700 px-2.5 py-0.5 text-xs font-semibold">
-                                    PENDING
-                                  </span>
-                                ) : (
-                                  <div className="space-y-1">
-                                    <span className="inline-block rounded-full bg-indigo-100 text-indigo-700 px-2.5 py-0.5 text-xs font-semibold">
-                                      REVIEWED
+                                  <button
+                                    onClick={() => void handleDownloadReport(item.id, 'pdf')}
+                                    disabled={downloadingKey !== null}
+                                    className="rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+                                  >
+                                    {isPdf ? '…' : 'PDF'}
+                                  </button>
+                                  <button
+                                    onClick={() => void handleDownloadReport(item.id, 'excel')}
+                                    disabled={downloadingKey !== null}
+                                    className="rounded-lg bg-emerald-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50 transition-colors"
+                                  >
+                                    {isExcel ? '…' : 'Excel'}
+                                  </button>
+                                </div>
+                              </td>
+                              {/* Appeal column */}
+                              <td className="px-5 py-4 whitespace-nowrap min-w-[120px]">
+                                {item.status === 'SUBMITTED' ? (
+                                  !appeal ? (
+                                    <button
+                                      onClick={() => setAppealAttemptId(item.id)}
+                                      className="rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
+                                    >
+                                      Appeal
+                                    </button>
+                                  ) : appeal.status === 'PENDING' ? (
+                                    <span className="inline-block rounded-full bg-yellow-100 text-yellow-700 px-2.5 py-0.5 text-xs font-semibold">
+                                      PENDING
                                     </span>
-                                    {appeal.decisionNotes && (
-                                      <p
-                                        className="text-xs text-gray-500 max-w-[160px] truncate cursor-help"
-                                        title={appeal.decisionNotes}
-                                      >
-                                        {appeal.decisionNotes}
-                                      </p>
-                                    )}
-                                  </div>
-                                )
-                              ) : (
-                                <span className="text-gray-300 text-xs">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
+                                  ) : (
+                                    <div className="space-y-1">
+                                      <span className="inline-block rounded-full bg-indigo-100 text-indigo-700 px-2.5 py-0.5 text-xs font-semibold">
+                                        REVIEWED
+                                      </span>
+                                      {appeal.decisionNotes && (
+                                        <p
+                                          className="text-xs text-gray-500 max-w-[160px] truncate cursor-help"
+                                          title={appeal.decisionNotes}
+                                        >
+                                          {appeal.decisionNotes}
+                                        </p>
+                                      )}
+                                    </div>
+                                  )
+                                ) : (
+                                  <span className="text-gray-300 text-xs">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+      </div>{/* end animate-fade-in wrapper */}
     </div>
     </>
   );
