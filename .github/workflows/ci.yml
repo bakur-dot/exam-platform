@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build & E2E Tests
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_ENV: test
+      # Database — relative path works because the CWD is the repo root
+      DATABASE_URL: "file:./prisma/dev.db"
+      # For CI, fall back to deterministic test-only hex strings if repo secrets
+      # are not configured. These values are intentionally public — rotate them
+      # before any production deployment.
+      JWT_ACCESS_SECRET:      ${{ secrets.JWT_ACCESS_SECRET      || '0000000000000000000000000000000000000000000000000000000000000001' }}
+      JWT_REFRESH_SECRET:     ${{ secrets.JWT_REFRESH_SECRET     || '0000000000000000000000000000000000000000000000000000000000000002' }}
+      JWT_ACCESS_EXPIRES_IN:  "15m"
+      JWT_REFRESH_EXPIRES_IN: "7d"
+      TOTP_ENCRYPTION_KEY:    ${{ secrets.TOTP_ENCRYPTION_KEY    || '0000000000000000000000000000000000000000000000000000000000000003' }}
+      APP_NAME:               "Exam Platform CI"
+
+    steps:
+      # ── Source ────────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # ── Backend setup ─────────────────────────────────────────────────────────
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply database migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed database
+        run: npm run seed
+
+      - name: Start API server
+        run: node index.js &
+
+      # ── Frontend setup ────────────────────────────────────────────────────────
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend (TypeScript check + Vite bundle)
+        working-directory: frontend
+        run: npm run build
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # ── Wait for the API to accept connections ────────────────────────────────
+      - name: Wait for backend on :3000
+        run: npx --yes wait-on tcp:localhost:3000 --timeout 30000
+
+      # ── E2E ───────────────────────────────────────────────────────────────────
+      # CI=true is set automatically by GitHub Actions.
+      # playwright.config.ts detects this and starts a fresh Vite dev server
+      # (reuseExistingServer: false), so no manual frontend startup is needed.
+      - name: Run Playwright E2E tests
+        working-directory: frontend
+        run: npm run test:e2e
+
+      # ── Artifacts (only on failure) ───────────────────────────────────────────
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
