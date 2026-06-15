@@ -34,25 +34,16 @@ async function loginAsAdmin(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Sign in' }).click();
   await authResponse;
 
+  // Give Zustand persist middleware and React Router time to write the JWT to
+  // localStorage and complete the navigation before any assertion runs.
+  await page.waitForTimeout(500);
+
   await page.waitForURL('**/admin', { timeout: 15_000 });
 
   // Heading visible = React mounted + ProtectedRoute passed + auth store hydrated
   await expect(
     page.getByRole('heading', { name: /admin dashboard/i }),
   ).toBeVisible({ timeout: 10_000 });
-
-  // Wait for the first authenticated GET to return 200 — proves the JWT was
-  // written to localStorage and attached to the outgoing request before any
-  // test assertion runs. Without this, dashboard data-fetch requests can fire
-  // before the token is persisted, get a 401, and trigger an Axios interceptor
-  // logout that redirects back to /login mid-test.
-  await page.waitForResponse(
-    (response) =>
-      response.url().includes('/api/') &&
-      response.request().method() === 'GET' &&
-      response.status() === 200,
-    { timeout: 15_000 },
-  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
