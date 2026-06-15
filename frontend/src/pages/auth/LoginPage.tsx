@@ -1,7 +1,8 @@
-import axios from 'axios';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import api from '../../services/api';
+import { axiosMsg } from '../../utils/axiosMsg';
 import { useAuthStore } from '../../store/authStore';
 import type { User } from '../../store/authStore';
 
@@ -34,19 +35,17 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
 
-  const [step, setStep] = useState<Step>('credentials');
-  const [email, setEmail] = useState('');
+  const [step, setStep]       = useState<Step>('credentials');
+  const [email, setEmail]     = useState('');
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [tempToken, setTempToken] = useState('');
-  const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   // ── Step 1: email + password ─────────────────────────────────────────────────
 
   async function handleCredentialsSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setError(null);
     setIsLoading(true);
 
     try {
@@ -64,12 +63,7 @@ export default function LoginPage() {
         navigate(roleRedirect(auth.user.roleName), { replace: true });
       }
     } catch (err) {
-      if (axios.isAxiosError(err)) {
-        const msg = err.response?.data?.message as string | undefined;
-        setError(msg ?? 'Login failed. Please try again.');
-      } else {
-        setError('An unexpected error occurred.');
-      }
+      toast.error(axiosMsg(err, 'Login failed. Please check your credentials.'));
     } finally {
       setIsLoading(false);
     }
@@ -79,7 +73,6 @@ export default function LoginPage() {
 
   async function handleTotpSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setError(null);
     setIsLoading(true);
 
     try {
@@ -91,12 +84,7 @@ export default function LoginPage() {
       setAuth(data.user, data.accessToken, data.refreshToken);
       navigate(roleRedirect(data.user.roleName), { replace: true });
     } catch (err) {
-      if (axios.isAxiosError(err)) {
-        const msg = err.response?.data?.message as string | undefined;
-        setError(msg ?? 'Invalid code. Please try again.');
-      } else {
-        setError('An unexpected error occurred.');
-      }
+      toast.error(axiosMsg(err, 'Invalid code. Please try again.'));
     } finally {
       setIsLoading(false);
     }
@@ -119,13 +107,6 @@ export default function LoginPage() {
               : 'Enter the 6-digit code from your authenticator app'}
           </p>
         </div>
-
-        {/* Error banner */}
-        {error && (
-          <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3">
-            <p className="text-sm text-red-600">{error}</p>
-          </div>
-        )}
 
         {/* ── Credentials form ── */}
         {step === 'credentials' && (
@@ -203,7 +184,7 @@ export default function LoginPage() {
 
             <button
               type="button"
-              onClick={() => { setStep('credentials'); setError(null); setTotpCode(''); }}
+              onClick={() => { setStep('credentials'); setTotpCode(''); }}
               className="w-full text-sm text-gray-500 hover:text-gray-700 underline"
             >
               Back to sign in
