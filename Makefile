@@ -2,7 +2,7 @@
 # Requires: make, Node.js ≥ 20, npm, Docker Desktop (for docker-* targets)
 # Windows users: run the equivalent `npm run <script>` commands from package.json.
 
-.PHONY: install dev seed docker-up docker-down db-migrate db-studio test-e2e
+.PHONY: install dev seed docker-up docker-down db-push db-migrate db-studio test-e2e
 
 ## install  — install all dependencies (backend + frontend)
 install:
@@ -24,6 +24,10 @@ docker-up:
 ## docker-down — stop and remove containers (data volumes are preserved)
 docker-down:
 	docker-compose down
+
+## db-push    — push schema directly to the database (fast; for ephemeral/CI envs)
+db-push:
+	npx prisma db push --accept-data-loss
 
 ## db-migrate — run pending Prisma migrations (dev mode, creates migration files)
 db-migrate:

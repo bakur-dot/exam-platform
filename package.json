@@ -8,6 +8,7 @@
     "dev": "concurrently --names \"api,ui\" --prefix-colors \"cyan,magenta\" \"node index.js\" \"npm run dev --prefix frontend\"",
     "install:all": "npm install && npm install --prefix frontend",
     "seed": "node prisma/seed.js",
+    "db:push": "npx prisma db push --accept-data-loss",
     "db:migrate": "npx prisma migrate dev",
     "db:studio": "npx prisma studio",
     "docker:up": "docker-compose up --build",
