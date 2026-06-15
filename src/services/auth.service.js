@@ -112,13 +112,14 @@ async function login(email, password) {
   }
 
   // All other cases → issue full tokens immediately
-  const tokens = buildTokens(user);
+  const { accessToken, refreshToken } = buildTokens(user);
   await writeAuditLog({ userId: user.id, action: 'LOGIN_SUCCESS', tableName: 'User', recordId: user.id });
 
   return {
     requiresTwoFactor: false,
-    mustSetupTotp: needs2FA && !user.is2faEnabled, // flag telling the client to redirect to /auth/2fa/setup
-    tokens,
+    mustSetupTotp: needs2FA && !user.is2faEnabled,
+    accessToken,
+    refreshToken,
     user: sanitizeUser(user),
   };
 }
@@ -210,10 +211,10 @@ async function verifyTotpLogin(tempToken, totpToken) {
     throw new AuthError('Invalid TOTP code.', 400);
   }
 
-  const tokens = buildTokens(user);
+  const { accessToken, refreshToken } = buildTokens(user);
   await writeAuditLog({ userId: user.id, action: 'LOGIN_SUCCESS', tableName: 'User', recordId: user.id });
 
-  return { tokens, user: sanitizeUser(user) };
+  return { accessToken, refreshToken, user: sanitizeUser(user) };
 }
 
 /**
