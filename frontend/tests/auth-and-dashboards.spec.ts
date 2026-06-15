@@ -40,6 +40,19 @@ async function loginAsAdmin(page: Page): Promise<void> {
   await expect(
     page.getByRole('heading', { name: /admin dashboard/i }),
   ).toBeVisible({ timeout: 10_000 });
+
+  // Wait for the first authenticated GET to return 200 — proves the JWT was
+  // written to localStorage and attached to the outgoing request before any
+  // test assertion runs. Without this, dashboard data-fetch requests can fire
+  // before the token is persisted, get a 401, and trigger an Axios interceptor
+  // logout that redirects back to /login mid-test.
+  await page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/') &&
+      response.request().method() === 'GET' &&
+      response.status() === 200,
+    { timeout: 15_000 },
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
