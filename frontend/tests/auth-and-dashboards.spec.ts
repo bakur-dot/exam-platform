@@ -125,27 +125,30 @@ test.describe('Error Toast Notifications (Sonner)', () => {
 test.describe('Admin Dashboard — Tab Transitions & Layout Polish', () => {
 
   /**
-   * beforeEach runs a full login with guaranteed API + navigation + heading
-   * completion before any test body executes. This prevents the "navigated back
-   * to /login" failure seen in CI where per-test loginAsAdmin calls inside the
-   * test body raced against React's initial render.
+   * Single consolidated test: logs in once, then verifies all layout, transition,
+   * modal, and skeleton behaviours in sequence. One login call instead of three
+   * eliminates the rapid-fire auth requests that previously caused flakiness in CI.
    */
-  test.beforeEach(async ({ page }) => {
+  test('Admin Dashboard — full layout, transitions, and modals verify', async ({ page }) => {
     await loginAsAdmin(page);
-  });
 
-  test('tabs animate in gracefully — content is immediately actionable', async ({ page }) => {
     // ── Document Review (default active tab) ─────────────────────────────────
     const docRefreshBtn = page.getByRole('button', { name: 'Refresh' });
     await expect(docRefreshBtn).toBeVisible();
     await expect(docRefreshBtn).toBeEnabled();
 
+    // Skeleton disappears and real content (or empty-state) appears
+    await expect(
+      page.locator('text=/No pending documents|documents awaiting review|All documents have been reviewed/i').first()
+    ).toBeVisible({ timeout: 15_000 });
+
     // ── Switch to Reports & Analytics ─────────────────────────────────────────
+    // animate-fade-in (150 ms) plays on mount; Playwright's actionability checks
+    // wait for stability automatically — no manual sleeps needed.
     await page.getByRole('button', { name: 'Reports & Analytics' }).click();
     await expect(page.getByRole('button', { name: 'Session Reports' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Thematic Stats' })).toBeVisible();
 
-    // Verify sub-tab switching also fades gracefully
     await page.getByRole('button', { name: 'Thematic Stats' }).click();
     await expect(page.locator('text=Chapter Difficulty Analysis')).toBeVisible();
 
@@ -158,48 +161,31 @@ test.describe('Admin Dashboard — Tab Transitions & Layout Polish', () => {
       page.locator('text=/No appeals filed yet|appeals total|Loading/i').first()
     ).toBeVisible({ timeout: 10_000 });
 
+    // Optional modal test — only runs when a PENDING appeal exists in the DB
+    const reviewButton = page.getByRole('button', { name: 'Review' }).first();
+    const hasReviewBtn = await reviewButton.isVisible().catch(() => false);
+
+    if (hasReviewBtn) {
+      // animate-modal-in (200 ms scale + opacity) plays on mount
+      await reviewButton.click();
+      await expect(page.getByRole('heading', { name: 'Review Appeal' })).toBeVisible();
+
+      const notesArea = page.getByPlaceholder("Summarize the commission's decision…");
+      await expect(notesArea).toBeVisible();
+      await expect(notesArea).toBeEnabled();
+      await notesArea.fill('Test annotation — E2E check only.');
+
+      // Close without submitting (read-only)
+      await page.getByRole('button', { name: 'Cancel' }).click();
+      await expect(page.getByRole('heading', { name: 'Review Appeal' })).not.toBeVisible();
+    }
+
     // ── Return to Document Review ─────────────────────────────────────────────
     await page.getByRole('button', { name: 'Document Review' }).click();
     await expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible();
     await expect(
       page.locator('text=/No pending documents|documents awaiting|Loading/i').first()
     ).toBeVisible({ timeout: 10_000 });
-  });
-
-  test('Review Appeal modal fades and scales in without blocking inputs', async ({ page }) => {
-    await page.getByRole('button', { name: 'Appeals Review' }).click();
-
-    await expect(
-      page.locator('text=/No appeals filed yet|appeals total|Loading/i').first()
-    ).toBeVisible({ timeout: 10_000 });
-
-    const reviewButton = page.getByRole('button', { name: 'Review' }).first();
-    const hasReviewBtn = await reviewButton.isVisible().catch(() => false);
-
-    if (!hasReviewBtn) {
-      test.info().annotations.push({
-        type: 'skip-reason',
-        description: 'No PENDING appeals in the database — modal test skipped.',
-      });
-      return;
-    }
-
-    await reviewButton.click();
-    await expect(page.getByRole('heading', { name: 'Review Appeal' })).toBeVisible();
-
-    const notesArea = page.getByPlaceholder("Summarize the commission's decision…");
-    await expect(notesArea).toBeVisible();
-    await expect(notesArea).toBeEnabled();
-    await notesArea.fill('Test annotation — E2E check only.');
-
-    await page.getByRole('button', { name: 'Cancel' }).click();
-    await expect(page.getByRole('heading', { name: 'Review Appeal' })).not.toBeVisible();
-  });
-
-  test('Document Review skeleton disappears after data loads', async ({ page }) => {
-    await expect(
-      page.locator('text=/No pending documents|documents awaiting review|All documents have been reviewed/i').first()
-    ).toBeVisible({ timeout: 15_000 });
   });
 
 });
