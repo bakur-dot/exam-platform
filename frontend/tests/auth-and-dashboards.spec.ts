@@ -157,27 +157,36 @@ test.describe('Admin Dashboard — Tab Transitions & Layout Polish', () => {
 
     // ── Switch to Appeals Review ──────────────────────────────────────────────
     await page.getByRole('button', { name: 'Appeals Review' }).click();
-    await expect(
-      page.locator('text=/No appeals filed yet|appeals total|Loading/i').first()
-    ).toBeVisible({ timeout: 10_000 });
 
-    // Optional modal test — only runs when a PENDING appeal exists in the DB
-    const reviewButton = page.getByRole('button', { name: 'Review' }).first();
-    const hasReviewBtn = await reviewButton.isVisible().catch(() => false);
+    // Wait for the appeals content to settle (empty state or loaded data)
+    const appealsEmpty  = page.locator('text=/No appeals filed yet/i');
+    const appealsLoaded = page.locator('text=/appeals total/i');
+    await expect(appealsEmpty.or(appealsLoaded)).toBeVisible({ timeout: 10_000 });
 
-    if (hasReviewBtn) {
-      // animate-modal-in (200 ms scale + opacity) plays on mount
-      await reviewButton.click();
-      await expect(page.getByRole('heading', { name: 'Review Appeal' })).toBeVisible();
+    // Modal check: only runs when PENDING appeals exist in the DB.
+    // A freshly seeded CI database has no appeals, so this block is skipped.
+    //
+    // Guard uses the empty-state TEXT rather than button presence because
+    // getByRole('button', { name: 'Review' }) uses substring matching by default —
+    // it would match "Document Review" and "Appeals Review" tab buttons and click
+    // them instead of an appeals-row action button.
+    const isEmptyAppeals = await appealsEmpty.isVisible();
+    if (!isEmptyAppeals) {
+      // exact:true matches only the literal "Review" action button, not the
+      // "Document Review" / "Appeals Review" tab nav buttons.
+      const reviewBtn = page.getByRole('button', { name: 'Review', exact: true }).first();
+      if (await reviewBtn.isVisible().catch(() => false)) {
+        await reviewBtn.click();
+        await expect(page.getByRole('heading', { name: 'Review Appeal' })).toBeVisible({ timeout: 5_000 });
 
-      const notesArea = page.getByPlaceholder("Summarize the commission's decision…");
-      await expect(notesArea).toBeVisible();
-      await expect(notesArea).toBeEnabled();
-      await notesArea.fill('Test annotation — E2E check only.');
+        const notesArea = page.getByPlaceholder("Summarize the commission's decision…");
+        await expect(notesArea).toBeVisible();
+        await expect(notesArea).toBeEnabled();
+        await notesArea.fill('Test annotation — E2E check only.');
 
-      // Close without submitting (read-only)
-      await page.getByRole('button', { name: 'Cancel' }).click();
-      await expect(page.getByRole('heading', { name: 'Review Appeal' })).not.toBeVisible();
+        await page.getByRole('button', { name: 'Cancel' }).click();
+        await expect(page.getByRole('heading', { name: 'Review Appeal' })).not.toBeVisible();
+      }
     }
 
     // ── Return to Document Review ─────────────────────────────────────────────
